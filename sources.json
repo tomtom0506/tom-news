@@ -1,0 +1,14 @@
+{
+  "verified": [
+    {"name": "ynet מבזקים", "url": "https://www.ynet.co.il/Integration/StoryRss1854.xml"},
+    {"name": "Times of Israel", "url": "https://www.timesofisrael.com/feed/"},
+    {"name": "Jerusalem Post", "url": "https://www.jpost.com/rss/rssfeedsfrontpage.aspx"},
+    {"name": "BBC Middle East", "url": "https://feeds.bbci.co.uk/news/world/middle_east/rss.xml"},
+    {"name": "Al Jazeera", "url": "https://www.aljazeera.com/xml/rss/all.xml"}
+  ],
+  "unverified_telegram": [
+    "abualiexpress",
+    "englishabuali",
+    "amitsegal"
+  ]
+}

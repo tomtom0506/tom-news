@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 IL = ZoneInfo("Asia/Jerusalem")
 BASE = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(BASE, "state.json")
@@ -37,6 +37,7 @@ MAX_OUT_TOKENS = 2000
 # ---- כללי ----
 MAX_AGE = timedelta(hours=3)
 MAX_MSGS_PER_RUN = 12
+MIN_IMPORTANCE = 2                 # אירועים שוליים (1) לא נשלחים
 RECENT_EVENTS_KEEP = 25            # אירועים אחרונים שנשלחים ל-AI לצורך איחוד ואימות
 RECENT_EVENTS_HOURS = 6
 DUP_KEEP = 400                     # טביעות טקסט לזיהוי כפילויות
@@ -65,6 +66,9 @@ SYSTEM_PROMPT = """אתה עורך חדשות. תקבל רשימת ידיעות 
 6. verified=true רק אם לפחות ידיעה אחת מסוג media תומכת באירוע. ידיעות telegram בלבד = שמועה.
 7. headline: עד 12 מילים. summary: משפט או שניים, עד 40 מילים. ניסוח ניטרלי ועובדתי, בלי להוסיף עובדות שלא מופיעות בידיעות, בלי פרטים גרפיים.
 8. importance: 3 = דחוף/ביטחוני מהותי, 2 = חשוב, 1 = שולי.
+9. ידיעות יכולות להיות בכל שפה (עברית, אנגלית, ערבית, פרסית). תמיד כתוב בעברית.
+10. כלכלה ושווקים: דווח רק על מה שמזיז שווקים – החלטות בנקים מרכזיים, נתוני מאקרו מרכזיים, תנועות חדות במדדים/נפט/מטבעות, אירועים מהותיים בחברות גדולות. נתוני מסחר שגרתיים (imbalance, זרימות, דוחות קטנים) = importance 1.
+11. ידיעה ממקור בפרסית/ערבית שמוסיפה זווית שלא מופיעה במקורות אחרים – ציין זאת בסיכום ("לפי תקשורת איראנית/ערבית")
 
 החזר JSON בלבד, בלי טקסט נוסף ובלי ```:
 {"events":[{"status":"new|update|confirmed","ref":null,"headline":"...","summary":"...","verified":true,"importance":2,"item_ids":[1,2]}],"junk":[3,4],"dup":[5]}"""
@@ -450,7 +454,7 @@ def main():
             bump(st, batch[iid - 1]["source"], "dup")
 
     events = sorted(result.get("events", []), key=lambda e: -int(e.get("importance") or 1))
-    events = events[:MAX_MSGS_PER_RUN]
+    events = [e for e in events if int(e.get("importance") or 1) >= MIN_IMPORTANCE][:MAX_MSGS_PER_RUN]
     stored = st.setdefault("events", [])
     for ev in events:
         for iid in ev.get("item_ids", []):

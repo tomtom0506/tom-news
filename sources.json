@@ -1,9 +1,37 @@
 {
   "media": [
-    {"name": "ynet", "url": "https://www.ynet.co.il/Integration/StoryRss1854.xml"},
-    {"name": "Jerusalem Post", "url": "https://www.jpost.com/rss/rssfeedsfrontpage.aspx"},
-    {"name": "BBC", "url": "https://feeds.bbci.co.uk/news/world/middle_east/rss.xml"},
-    {"name": "Al Jazeera", "url": "https://www.aljazeera.com/xml/rss/all.xml"}
+    {
+      "name": "ynet",
+      "url": "https://www.ynet.co.il/Integration/StoryRss1854.xml"
+    },
+    {
+      "name": "Jerusalem Post",
+      "url": "https://www.jpost.com/rss/rssfeedsfrontpage.aspx"
+    },
+    {
+      "name": "BBC",
+      "url": "https://feeds.bbci.co.uk/news/world/middle_east/rss.xml"
+    },
+    {
+      "name": "Al Jazeera",
+      "url": "https://www.aljazeera.com/xml/rss/all.xml"
+    },
+    {
+      "name": "BBC פרסית",
+      "url": "https://feeds.bbci.co.uk/persian/rss.xml"
+    },
+    {
+      "name": "BBC ערבית",
+      "url": "https://feeds.bbci.co.uk/arabic/rss.xml"
+    },
+    {
+      "name": "BBC כלכלה",
+      "url": "https://feeds.bbci.co.uk/news/business/rss.xml"
+    },
+    {
+      "name": "CNBC",
+      "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html"
+    }
   ],
   "telegram": [
     "abualiexpress",
@@ -16,7 +44,10 @@
     "OvadiaTubul",
     "israelnews2026",
     "new_il_hasifot",
-    "pkpoi"
+    "pkpoi",
+    "OSINTdefender",
+    "marketfeed",
+    "FinancialJuice"
   ],
   "telegram_names": {
     "abualiexpress": "אבו עלי",
@@ -29,6 +60,9 @@
     "OvadiaTubul": "עובדיה טובול",
     "israelnews2026": "israelnews2026",
     "new_il_hasifot": "חדשות וחשיפות",
-    "pkpoi": "pkpoi"
+    "pkpoi": "pkpoi",
+    "OSINTdefender": "OSINTdefender",
+    "marketfeed": "Market News Feed",
+    "FinancialJuice": "FinancialJuice"
   }
 }

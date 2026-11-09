@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""tom-news — בוט חדשות אישי לטלגרם.
+"""tom-news v2.0.0 — בוט חדשות אישי לטלגרם, עם סיכום AI.
 
-מושך עדכונים מכלי תקשורת (RSS) ומערוצי טלגרם ציבוריים,
-ומפרסם בערוץ הפרטי עם תווית: ✅ כלי תקשורת / ⚠️ לא מאומת.
-רץ ב-GitHub Actions כל 5 דקות. רשימת המקורות: sources.json
+כל ריצה: אוסף ידיעות חדשות מכלי תקשורת (RSS) ומערוצי טלגרם ציבוריים,
+מסנן זבל וכפילויות מקומית (בחינם), ושולח את מה שנשאר לסיכום אחד ב-Claude Haiku.
+Claude מאחד ידיעות על אותו אירוע להודעה אחת בעברית, עם סטטוס מאומת/שמועה.
+פעם בשבוע: דוח עלות + דוח רעש לכל מקור, כדי לזהות ערוצים שמכניסים זבל.
 """
+import hashlib
 import html
 import json
 import os
@@ -19,21 +21,59 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 IL = ZoneInfo("Asia/Jerusalem")
 BASE = os.path.dirname(os.path.abspath(__file__))
-SEEN_FILE = os.path.join(BASE, "seen.json")
+STATE_FILE = os.path.join(BASE, "state.json")
 SOURCES_FILE = os.path.join(BASE, "sources.json")
-MAX_AGE = timedelta(hours=3)   # לא לפרסם ידיעות ישנות מ-3 שעות
-MAX_PER_RUN = 25               # תקרת הודעות לריצה, כדי לא להציף
-MAX_TEXT = 700                 # אורך מקסימלי לטקסט הודעה
-KEEP_SEEN = 5000               # כמה מזהים לזכור למניעת כפילויות
-UA = "Mozilla/5.0 (compatible; tom-news/1.0)"
 
+# ---- הגנות עלות ----
+MODEL = "claude-haiku-5-5"
+PRICE_IN, PRICE_OUT = 0.10, 0.50   # דולר למיליון טוקנים (Haiku 5.5, עד 100K)
+MAX_CALLS_PER_DAY = 150            # תקרת קריאות AI ביום
+MAX_ITEMS_PER_CALL = 60            # לכל היותר ידיעות בקריאה אחת
+MAX_ITEM_CHARS = 350               # חיתוך כל ידיעה לפני השליחה ל-AI
+MAX_OUT_TOKENS = 2000
+# ---- כללי ----
+MAX_AGE = timedelta(hours=3)
+MAX_MSGS_PER_RUN = 12
+RECENT_EVENTS_KEEP = 25            # אירועים אחרונים שנשלחים ל-AI לצורך איחוד ואימות
+RECENT_EVENTS_HOURS = 6
+DUP_KEEP = 400                     # טביעות טקסט לזיהוי כפילויות
+DUP_THRESHOLD = 0.6
+KEEP_SEEN = 6000
+UA = "Mozilla/5.0 (compatible; tom-news/2.0)"
+
+# שורות "חתימה" של ערוצים שאין בהן תוכן
+BOILER_RE = re.compile(
+    r"(t\.me/|https?://|^@\w+|בטלגרם|הצטרפו|הצטרפות|עקבו אחרינו|לפרסום|פרסמו|ווטסאפ|וואטסאפ|"
+    r"אינסטגרם|טיקטוק|לשליחת תיעודים|להצטרפות)", re.I)
+# פרסומות מובהקות
+AD_RE = re.compile(
+    r"(קוד קופון|קוד הנחה|% הנחה|הנחה של|להזמנות|להזמנה|לפרטים נוספים חייגו|בית הימורים|קזינו|"
+    r"casino|תשואה מובטחת|לתרומות|לתרומה|הגרלה|מבצע השקה|לרכישה|משלוח חינם)", re.I)
+
+SYSTEM_PROMPT = """אתה עורך חדשות. תקבל רשימת ידיעות גולמיות מכלי תקשורת ומערוצי טלגרם, ורשימת אירועים שכבר פורסמו לאחרונה.
+המשימה: להפיק עדכוני חדשות קצרים בעברית, אירוע אחד לכל הודעה.
+
+כללים:
+1. אחד ידיעות שעוסקות באותו אירוע לאירוע אחד, עם כל המקורות שלו.
+2. התעלם מ: פרסומות, קידום ערוצים, ברכות, תפילות, ציטוטים רגשיים בלי מידע, סרטונים בלי הקשר, דעות בלבד, ותוכן שאין בו חדשה. סמן אותם כ-junk.
+3. אם ידיעה עוסקת באירוע שכבר פורסם (ברשימת האירועים האחרונים) ואין בה מידע חדש מהותי – סמן אותה כ-dup ואל תיצור אירוע.
+4. אם יש מידע חדש מהותי על אירוע קודם – status "update" עם ref של האירוע הקודם.
+5. אם אירוע קודם היה שמועה (verified=false) ועכשיו כלי תקשורת (kind=media) מדווח עליו – status "confirmed" עם ref.
+6. verified=true רק אם לפחות ידיעה אחת מסוג media תומכת באירוע. ידיעות telegram בלבד = שמועה.
+7. headline: עד 12 מילים. summary: משפט או שניים, עד 40 מילים. ניסוח ניטרלי ועובדתי, בלי להוסיף עובדות שלא מופיעות בידיעות, בלי פרטים גרפיים.
+8. importance: 3 = דחוף/ביטחוני מהותי, 2 = חשוב, 1 = שולי.
+
+החזר JSON בלבד, בלי טקסט נוסף ובלי ```:
+{"events":[{"status":"new|update|confirmed","ref":null,"headline":"...","summary":"...","verified":true,"importance":2,"item_ids":[1,2]}],"junk":[3,4],"dup":[5]}"""
+
+
+# ------------------------------------------------------------ איסוף
 
 def fetch(url, timeout=20):
-    req = urllib.request.Request(url, headers={
-        "User-Agent": UA, "Accept-Language": "he,en;q=0.8"})
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "he,en;q=0.8"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read()
 
@@ -49,9 +89,7 @@ def parse_date(s):
             d = datetime.fromisoformat(s.replace("Z", "+00:00"))
         except Exception:
             return None
-    if d.tzinfo is None:
-        d = d.replace(tzinfo=timezone.utc)
-    return d
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 
 
 def strip_tags(s):
@@ -59,16 +97,14 @@ def strip_tags(s):
     s = re.sub(r"<[^>]+>", "", s)
     s = html.unescape(s)
     s = re.sub(r"[ \t]+", " ", s)
-    s = re.sub(r"\n{3,}", "\n\n", s)
-    return s.strip()
+    return re.sub(r"\n{3,}", "\n\n", s).strip()
 
 
 def _local(tag):
     return tag.rsplit("}", 1)[-1]
 
 
-def parse_feed(data, source_name):
-    """RSS 2.0 או Atom -> רשימת ידיעות."""
+def parse_feed(data, source):
     root = ET.fromstring(data)
     items = []
     for el in root.iter():
@@ -88,9 +124,9 @@ def parse_feed(data, source_name):
             continue
         link = f.get("link", "")
         uid = f.get("guid") or f.get("id") or link or title
-        when = parse_date(f.get("pubDate") or f.get("published") or f.get("updated"))
-        items.append({"id": f"rss:{source_name}:{uid}", "kind": "verified",
-                      "source": source_name, "text": title, "link": link, "when": when})
+        items.append({"id": f"rss:{source}:{uid}", "kind": "media", "source": source,
+                      "text": title, "link": link,
+                      "when": parse_date(f.get("pubDate") or f.get("published") or f.get("updated"))})
     return items
 
 
@@ -100,155 +136,333 @@ _TIME_RE = re.compile(r'<time[^>]*datetime="([^"]+)"')
 
 
 def parse_tg(page, channel):
-    """דף התצוגה הציבורי t.me/s/<ערוץ> -> רשימת ידיעות."""
     items = []
     for chunk in page.split('class="tgme_widget_message_wrap')[1:]:
-        m = _POST_RE.search(chunk)
-        t = _TEXT_RE.search(chunk)
+        m, t = _POST_RE.search(chunk), _TEXT_RE.search(chunk)
         if not m or not t:
-            continue  # הודעה בלי טקסט (תמונה/וידאו בלבד)
+            continue
         text = strip_tags(t.group(1))
         if not text:
             continue
         d = _TIME_RE.search(chunk)
         post = m.group(1)
-        items.append({"id": f"tg:{post}", "kind": "unverified", "source": channel,
-                      "text": text, "link": f"https://t.me/{post}",
-                      "when": parse_date(d.group(1)) if d else None})
+        items.append({"id": f"tg:{post}", "kind": "telegram", "source": channel, "text": text,
+                      "link": f"https://t.me/{post}", "when": parse_date(d.group(1)) if d else None})
     return items
 
 
-def fmt(it, now):
-    when = it["when"] or now
-    hhmm = when.astimezone(IL).strftime("%H:%M")
-    text = it["text"]
-    if len(text) > MAX_TEXT:
-        text = text[:MAX_TEXT].rsplit(" ", 1)[0] + "…"
-    src = html.escape(it["source"])
-    if it["kind"] == "verified":
-        head = f"✅ <b>{src}</b> · {hhmm}"
-    else:
-        head = f"⚠️ <b>לא מאומת</b> · {src} · {hhmm}"
-    link = ""
-    if it["link"]:
-        link = f'\n<a href="{html.escape(it["link"], quote=True)}">למקור</a>'
-    return f"{head}\n{html.escape(text)}{link}"
+def collect(sources):
+    items, failed = [], []
+    for s in sources.get("media", []):
+        try:
+            got = parse_feed(fetch(s["url"]), s["name"])
+            items += got
+            print(f"✓ {s['name']}: {len(got)}")
+        except Exception as e:
+            failed.append(s["name"])
+            print(f"✗ {s['name']}: {type(e).__name__}: {e}")
+    for ch in sources.get("telegram", []):
+        try:
+            got = parse_tg(fetch(f"https://t.me/s/{ch}").decode("utf-8", "ignore"), ch)
+            items += got
+            if not got:
+                failed.append(ch)
+            print(f"{'✓' if got else '✗'} tg/{ch}: {len(got)}")
+        except Exception as e:
+            failed.append(ch)
+            print(f"✗ tg/{ch}: {type(e).__name__}: {e}")
+    return items, failed
 
+
+# ------------------------------------------------------------ סינון מקומי (חינם)
+
+def clean_text(text):
+    lines = [ln.strip() for ln in text.split("\n")]
+    keep = [ln for ln in lines if ln and not BOILER_RE.search(ln)]
+    return re.sub(r"\s+", " ", " ".join(keep)).strip()
+
+
+def fingerprint(text):
+    t = re.sub(r"[^\w\s]", " ", text.lower())
+    words = [w for w in t.split() if len(w) > 1]
+    return set(words)
+
+
+def jaccard(a, b):
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
+def local_filter(items, state):
+    """מחזיר (טובים, זבל, כפולים). מעדכן את מאגר טביעות הטקסט."""
+    recent = [set(x) for x in state.get("fps", [])]
+    good, junk, dups = [], [], []
+    for it in items:
+        txt = clean_text(it["text"]) if it["kind"] == "telegram" else it["text"]
+        if len(txt) < 25 or (it["kind"] == "telegram" and AD_RE.search(txt)):
+            junk.append(it)
+            continue
+        fp = fingerprint(txt)
+        if any(jaccard(fp, r) >= DUP_THRESHOLD for r in recent):
+            dups.append(it)
+            continue
+        recent.append(fp)
+        it["clean"] = txt[:MAX_ITEM_CHARS]
+        good.append(it)
+    state["fps"] = [sorted(x) for x in recent[-DUP_KEEP:]]
+    return good, junk, dups
+
+
+# ------------------------------------------------------------ Claude
+
+def call_claude(api_key, items, recent_events):
+    payload_items = [{"id": i + 1, "kind": it["kind"], "source": it["source"], "text": it["clean"]}
+                     for i, it in enumerate(items)]
+    user = json.dumps({"recent_events": recent_events, "items": payload_items}, ensure_ascii=False)
+    body = json.dumps({
+        "model": MODEL, "max_tokens": MAX_OUT_TOKENS, "system": SYSTEM_PROMPT,
+        "messages": [{"role": "user", "content": user}]}).encode()
+    req = urllib.request.Request("https://api.anthropic.com/v1/messages", data=body, headers={
+        "x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=90) as r:
+            data = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"API {e.code}: {e.read().decode('utf-8', 'ignore')[:300]}")
+    text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+    text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.M).strip()
+    usage = data.get("usage", {})
+    return json.loads(text), usage.get("input_tokens", 0), usage.get("output_tokens", 0)
+
+
+# ------------------------------------------------------------ טלגרם
 
 def tg_send(token, chat, text):
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    data = urllib.parse.urlencode({
-        "chat_id": chat, "text": text, "parse_mode": "HTML",
-        "disable_web_page_preview": "true"}).encode()
+    data = urllib.parse.urlencode({"chat_id": chat, "text": text, "parse_mode": "HTML",
+                                   "disable_web_page_preview": "true"}).encode()
     for _ in range(3):
         try:
             with urllib.request.urlopen(urllib.request.Request(url, data=data), timeout=20):
                 return True
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8", "ignore")
-            if e.code == 429:  # הגבלת קצב של טלגרם
+            if e.code == 429:
                 m = re.search(r'"retry_after":\s*(\d+)', body)
                 time.sleep((int(m.group(1)) if m else 5) + 1)
                 continue
             print(f"שליחה נכשלה ({e.code}): {body[:200]}")
             return False
-        except Exception as e:  # לא מדפיסים את ה-URL כדי לא לחשוף את הטוקן
+        except Exception as e:
             print(f"שגיאת רשת בשליחה: {type(e).__name__}")
             time.sleep(3)
     return False
 
 
-def load_seen():
-    if not os.path.exists(SEEN_FILE):
+def fmt_event(ev, items, src_names, now):
+    hhmm = now.astimezone(IL).strftime("%H:%M")
+    srcs, links = [], []
+    for iid in ev.get("item_ids", []):
+        if 1 <= iid <= len(items):
+            it = items[iid - 1]
+            name = src_names.get(it["source"], it["source"])
+            if name not in srcs:
+                srcs.append(name)
+            if it["link"] and len(links) < 2 and (it["kind"] == "media" or not links):
+                links.append(it["link"])
+    st = ev.get("status", "new")
+    if st == "confirmed":
+        head = "🔁 <b>אושר ✅</b>"
+    elif ev.get("verified"):
+        head = "✅ <b>מאומת</b>"
+    else:
+        head = "⚠️ <b>שמועה</b>"
+    if st == "update":
+        head += " · עדכון"
+    if ev.get("importance") == 3:
+        head = "🔴 " + head
+    n = len(srcs)
+    head += f" · {n} {'מקור' if n == 1 else 'מקורות'} · {hhmm}"
+    out = (f"{head}\n<b>{html.escape(ev.get('headline', ''))}</b>\n"
+           f"{html.escape(ev.get('summary', ''))}")
+    if srcs:
+        out += f"\n<i>{html.escape(', '.join(srcs))}</i>"
+    for i, ln in enumerate(links):
+        out += f'\n<a href="{html.escape(ln, quote=True)}">מקור {i + 1}</a>'
+    return out
+
+
+# ------------------------------------------------------------ מצב ודוחות
+
+def load_state():
+    if not os.path.exists(STATE_FILE):
         return None
     try:
-        with open(SEEN_FILE, encoding="utf-8") as f:
+        with open(STATE_FILE, encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return {}
 
 
-def save_seen(seen):
+def save_state(st):
+    seen = st.get("seen", {})
     if len(seen) > KEEP_SEEN:
-        seen = dict(sorted(seen.items(), key=lambda kv: kv[1])[-KEEP_SEEN:])
-    with open(SEEN_FILE, "w", encoding="utf-8") as f:
-        json.dump(seen, f, ensure_ascii=False, indent=0)
+        st["seen"] = dict(sorted(seen.items(), key=lambda kv: kv[1])[-KEEP_SEEN:])
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(st, f, ensure_ascii=False, separators=(",", ":"))
 
 
-def collect(sources):
-    items, ok, failed = [], [], []
-    for s in sources.get("verified", []):
-        try:
-            got = parse_feed(fetch(s["url"]), s["name"])
-            items += got
-            ok.append(s["name"])
-            print(f"✓ {s['name']}: {len(got)}")
-        except Exception as e:
-            failed.append(s["name"])
-            print(f"✗ {s['name']}: {type(e).__name__}: {e}")
-    for ch in sources.get("unverified_telegram", []):
-        try:
-            got = parse_tg(fetch(f"https://t.me/s/{ch}").decode("utf-8", "ignore"), ch)
-            items += got
-            (ok if got else failed).append(ch)
-            print(f"{'✓' if got else '✗'} tg/{ch}: {len(got)}")
-        except Exception as e:
-            failed.append(ch)
-            print(f"✗ tg/{ch}: {type(e).__name__}: {e}")
-    return items, ok, failed
+def bump(st, source, key, n=1):
+    s = st.setdefault("stats", {}).setdefault(source, {"in": 0, "junk": 0, "dup": 0, "used": 0})
+    s[key] = s.get(key, 0) + n
 
+
+def weekly_report(st, src_names):
+    u = st.get("usage", {})
+    week_cost = u.get("week_cost", 0.0)
+    lines = [f"📊 <b>דוח שבועי</b> · גרסה {VERSION}",
+             f"עלות השבוע: ${week_cost:.3f} · מצטבר: ${u.get('total_cost', 0.0):.3f}",
+             f"קריאות AI השבוע: {u.get('week_calls', 0)}", "", "<b>מקורות</b> (נקלטו / זבל / כפול / שימושי):"]
+    rows = []
+    for src, s in st.get("stats", {}).items():
+        tot = s.get("in", 0)
+        used = s.get("used", 0)
+        ratio = used / tot if tot else 0
+        flag = " ⚠️ רעש גבוה" if tot >= 30 and ratio < 0.15 else ""
+        rows.append((ratio, f"{html.escape(src_names.get(src, src))}: {tot} / {s.get('junk', 0)} / "
+                            f"{s.get('dup', 0)} / {used} ({ratio:.0%}){flag}"))
+    lines += [r for _, r in sorted(rows)]
+    lines.append("\nמקור עם ⚠️ מבזבז טוקנים בלי לתרום – כדאי להוריד אותו.")
+    return "\n".join(lines)
+
+
+# ------------------------------------------------------------ ריצה
 
 def main():
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
     chat = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if not token or not chat:
         print("חסרים הסודות TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID")
         sys.exit(1)
 
     with open(SOURCES_FILE, encoding="utf-8") as f:
         sources = json.load(f)
-    seen = load_seen()
-    first_run = seen is None
-    seen = seen or {}
+    src_names = {s["name"]: s["name"] for s in sources.get("media", [])}
+    src_names.update(sources.get("telegram_names", {}))
 
-    items, ok, failed = collect(sources)
+    st = load_state()
+    first_run = st is None
+    st = st or {}
+    st.setdefault("seen", {})
     now = datetime.now(timezone.utc)
-    stamp = now.isoformat()
+    today = now.astimezone(IL).strftime("%Y-%m-%d")
+    week = now.astimezone(IL).strftime("%G-W%V")
+    u = st.setdefault("usage", {})
+    if u.get("day") != today:
+        u.update(day=today, day_calls=0, cap_notified=False)
+    if u.get("week") != week:
+        if u.get("week") and st.get("stats"):
+            tg_send(token, chat, weekly_report(st, src_names))
+            st["stats"] = {}
+        u.update(week=week, week_cost=0.0, week_calls=0)
 
+    items, failed = collect(sources)
     new, ids = [], set()
     for it in items:
-        if it["id"] in seen or it["id"] in ids:
+        if it["id"] in st["seen"] or it["id"] in ids:
             continue
         ids.add(it["id"])
         new.append(it)
+    stamp = now.isoformat()
     for it in new:
-        seen[it["id"]] = stamp
+        st["seen"][it["id"]] = stamp
 
     if first_run:
-        # ריצה ראשונה: לא מציפים בעבר, רק מסמנים הכל כנראה ומודיעים שהבוט חי
-        msg = (f"🟢 <b>הבוט פעיל</b> · גרסה {VERSION}\n"
-               f"מעכשיו יגיעו לכאן עדכונים חדשים, כל כ-5 דקות.\n\n"
-               f"✅ = כלי תקשורת\n⚠️ = רשתות, לא מאומת\n\n"
-               f"מקורות תקינים ({len(ok)}): {html.escape(', '.join(ok)) or '—'}")
+        local_filter(new, st)  # בונה מאגר כפילויות מהקיים, בלי לשלוח
+        msg = (f"🟢 <b>גרסה {VERSION} פעילה</b> – סיכום AI\n"
+               f"מעכשיו כל אירוע מגיע פעם אחת, מסוכם בעברית, עם כל המקורות שדיווחו.\n\n"
+               f"✅ מאומת = כלי תקשורת דיווח\n⚠️ שמועה = רק ערוצי טלגרם\n🔁 אושר = שמועה שאומתה\n"
+               f"🔴 = דחוף\n\nמקורות: {len(sources.get('media', [])) + len(sources.get('telegram', []))}")
         if failed:
-            msg += f"\nמקורות שנכשלו ({len(failed)}): {html.escape(', '.join(failed))}"
+            msg += f"\nנכשלו: {html.escape(', '.join(failed))}"
+        msg += "\n📊 דוח עלות ורעש לכל מקור – פעם בשבוע."
         tg_send(token, chat, msg)
-    else:
-        fresh = [i for i in new if i["when"] is None or now - i["when"] <= MAX_AGE]
-        fresh.sort(key=lambda i: i["when"] or now)
-        skipped = max(0, len(fresh) - MAX_PER_RUN)
-        if skipped:
-            fresh = fresh[-MAX_PER_RUN:]
-        sent = 0
-        for it in fresh:
-            if tg_send(token, chat, fmt(it, now)):
-                sent += 1
-            time.sleep(3.2)  # טלגרם מגביל בערך 20 הודעות לדקה לערוץ
-        if skipped:
-            tg_send(token, chat, f"ℹ️ דילגתי על {skipped} עדכונים ישנים יותר בגלל עומס.")
-        print(f"נשלחו {sent}, דולגו {skipped}, חדשים {len(new)}")
+        save_state(st)
+        return
 
-    save_seen(seen)
+    fresh = [i for i in new if i["when"] is None or now - i["when"] <= MAX_AGE]
+    for it in fresh:
+        bump(st, it["source"], "in")
+    good, junk, dups = local_filter(fresh, st)
+    for it in junk:
+        bump(st, it["source"], "junk")
+    for it in dups:
+        bump(st, it["source"], "dup")
+    print(f"חדשים {len(new)}, טריים {len(fresh)}, אחרי סינון מקומי {len(good)} "
+          f"(זבל {len(junk)}, כפול {len(dups)})")
+
+    if not good:
+        save_state(st)
+        return
+    if not api_key:
+        print("אין ANTHROPIC_API_KEY – מדלג על סיכום")
+        save_state(st)
+        return
+    if u.get("day_calls", 0) >= MAX_CALLS_PER_DAY:
+        if not u.get("cap_notified"):
+            tg_send(token, chat, f"⏸️ הגעתי לתקרה היומית ({MAX_CALLS_PER_DAY} סיכומים). ממשיך מחר.")
+            u["cap_notified"] = True
+        save_state(st)
+        return
+
+    good.sort(key=lambda i: i["when"] or now)
+    batch = good[-MAX_ITEMS_PER_CALL:]
+    cutoff = now - timedelta(hours=RECENT_EVENTS_HOURS)
+    recent = [e for e in st.get("events", []) if parse_date(e["t"]) and parse_date(e["t"]) >= cutoff]
+    recent = recent[-RECENT_EVENTS_KEEP:]
+    recent_for_ai = [{"ref": e["ref"], "headline": e["h"], "verified": e["v"]} for e in recent]
+
+    try:
+        result, tin, tout = call_claude(api_key, batch, recent_for_ai)
+    except Exception as e:
+        print(f"שגיאת AI: {e}")
+        if not u.get("err_day") == today:
+            tg_send(token, chat, f"⚠️ הסיכום נכשל: {html.escape(str(e)[:200])}\n"
+                                 f"(אם כתוב credit/balance – נגמר הקרדיט)")
+            u["err_day"] = today
+        save_state(st)
+        return
+
+    cost = tin / 1e6 * PRICE_IN + tout / 1e6 * PRICE_OUT
+    u["day_calls"] = u.get("day_calls", 0) + 1
+    u["week_calls"] = u.get("week_calls", 0) + 1
+    u["week_cost"] = u.get("week_cost", 0.0) + cost
+    u["total_cost"] = u.get("total_cost", 0.0) + cost
+    print(f"AI: {tin} in / {tout} out = ${cost:.4f}")
+
+    for iid in result.get("junk", []):
+        if isinstance(iid, int) and 1 <= iid <= len(batch):
+            bump(st, batch[iid - 1]["source"], "junk")
+    for iid in result.get("dup", []):
+        if isinstance(iid, int) and 1 <= iid <= len(batch):
+            bump(st, batch[iid - 1]["source"], "dup")
+
+    events = sorted(result.get("events", []), key=lambda e: -int(e.get("importance") or 1))
+    events = events[:MAX_MSGS_PER_RUN]
+    stored = st.setdefault("events", [])
+    for ev in events:
+        for iid in ev.get("item_ids", []):
+            if isinstance(iid, int) and 1 <= iid <= len(batch):
+                bump(st, batch[iid - 1]["source"], "used")
+        tg_send(token, chat, fmt_event(ev, batch, src_names, now))
+        ref = hashlib.md5((ev.get("headline", "") + stamp).encode()).hexdigest()[:6]
+        stored.append({"ref": ref, "h": ev.get("headline", ""), "v": bool(ev.get("verified")), "t": stamp})
+        time.sleep(3.2)
+    st["events"] = stored[-60:]
+    save_state(st)
+    print(f"נשלחו {len(events)} אירועים")
 
 
 if __name__ == "__main__":

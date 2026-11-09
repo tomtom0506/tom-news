@@ -1,14 +1,34 @@
 {
-  "verified": [
-    {"name": "ynet מבזקים", "url": "https://www.ynet.co.il/Integration/StoryRss1854.xml"},
-    {"name": "Times of Israel", "url": "https://www.timesofisrael.com/feed/"},
+  "media": [
+    {"name": "ynet", "url": "https://www.ynet.co.il/Integration/StoryRss1854.xml"},
     {"name": "Jerusalem Post", "url": "https://www.jpost.com/rss/rssfeedsfrontpage.aspx"},
-    {"name": "BBC Middle East", "url": "https://feeds.bbci.co.uk/news/world/middle_east/rss.xml"},
+    {"name": "BBC", "url": "https://feeds.bbci.co.uk/news/world/middle_east/rss.xml"},
     {"name": "Al Jazeera", "url": "https://www.aljazeera.com/xml/rss/all.xml"}
   ],
-  "unverified_telegram": [
+  "telegram": [
     "abualiexpress",
-    "englishabuali",
-    "amitsegal"
-  ]
+    "amitsegal",
+    "New_security8200",
+    "secrets_news1",
+    "News_il_h",
+    "baznews9",
+    "newssil",
+    "OvadiaTubul",
+    "israelnews2026",
+    "new_il_hasifot",
+    "pkpoi"
+  ],
+  "telegram_names": {
+    "abualiexpress": "אבו עלי",
+    "amitsegal": "עמית סגל",
+    "New_security8200": "8200",
+    "secrets_news1": "סודות החדשות",
+    "News_il_h": "חדשות ישראל ללא צנזורה",
+    "baznews9": "baznews9",
+    "newssil": "newssil",
+    "OvadiaTubul": "עובדיה טובול",
+    "israelnews2026": "israelnews2026",
+    "new_il_hasifot": "חדשות וחשיפות",
+    "pkpoi": "pkpoi"
+  }
 }

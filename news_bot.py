@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 
-VERSION = "2.1.0"
+VERSION = "2.1.1"
 IL = ZoneInfo("Asia/Jerusalem")
 BASE = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(BASE, "state.json")
@@ -235,9 +235,22 @@ def call_claude(api_key, items, recent_events):
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"API {e.code}: {e.read().decode('utf-8', 'ignore')[:300]}")
     text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
-    text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.M).strip()
     usage = data.get("usage", {})
-    return json.loads(text), usage.get("input_tokens", 0), usage.get("output_tokens", 0)
+    tin, tout = usage.get("input_tokens", 0), usage.get("output_tokens", 0)
+    return extract_json(text, data.get("stop_reason")), tin, tout
+
+
+def extract_json(text, stop_reason=None):
+    """מחלץ את אובייקט ה-JSON גם אם יש טקסט או ``` מסביבו."""
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end <= start:
+        print(f"תשובת AI ללא JSON (stop={stop_reason}): {text[:300]!r}")
+        raise ValueError(f"no JSON in reply (stop={stop_reason})")
+    try:
+        return json.loads(text[start:end + 1])
+    except json.JSONDecodeError as e:
+        print(f"JSON שבור (stop={stop_reason}): {text[:300]!r}")
+        raise ValueError(f"bad JSON: {e} (stop={stop_reason})")
 
 
 # ------------------------------------------------------------ טלגרם
@@ -428,13 +441,23 @@ def main():
     recent = recent[-RECENT_EVENTS_KEEP:]
     recent_for_ai = [{"ref": e["ref"], "headline": e["h"], "verified": e["v"]} for e in recent]
 
-    try:
-        result, tin, tout = call_claude(api_key, batch, recent_for_ai)
-    except Exception as e:
-        print(f"שגיאת AI: {e}")
-        if not u.get("err_day") == today:
-            tg_send(token, chat, f"⚠️ הסיכום נכשל: {html.escape(str(e)[:200])}\n"
-                                 f"(אם כתוב credit/balance – נגמר הקרדיט)")
+    result, tin, tout, err = None, 0, 0, None
+    for attempt in range(2):
+        try:
+            result, a, b = call_claude(api_key, batch, recent_for_ai)
+            tin, tout = tin + a, tout + b
+            break
+        except ValueError as e:      # תשובה לא תקינה – ננסה שוב פעם אחת
+            err = e
+            print(f"ניסיון {attempt + 1}: {e}")
+        except Exception as e:       # שגיאת API/רשת – לא מנסים שוב
+            err = e
+            break
+    if result is None:
+        print(f"שגיאת AI: {err}")
+        if u.get("err_day") != today:
+            hint = "\n(נגמר הקרדיט – צריך לטעון)" if re.search(r"credit|balance", str(err), re.I) else ""
+            tg_send(token, chat, f"⚠️ הסיכום נכשל: {html.escape(str(err)[:200])}{hint}")
             u["err_day"] = today
         save_state(st)
         return

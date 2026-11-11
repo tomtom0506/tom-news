@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 
-VERSION = "2.2.1"
+VERSION = "2.3.0"
 IL = ZoneInfo("Asia/Jerusalem")
 BASE = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(BASE, "state.json")
@@ -38,6 +38,11 @@ MAX_ITEM_CHARS = 300               # חיתוך כל ידיעה לפני השל�
 MAX_OUT_TOKENS = 4000
 FAIL_PAUSE_AFTER = 3               # אחרי 3 כישלונות ברצף – הפסקה
 FAIL_PAUSE_MIN = 60
+# ---- QA ----
+QA_EVERY_H = 3                     # בדיקת חריגות כל 3 שעות (הודעה רק אם יש בעיה)
+HEALTH_HOUR = 9                    # דוח בריאות יומי בשעה 9:00
+QA_MAX_AVG_OUT = 1200              # יותר טוקני תשובה בממוצע = חשד לדליפה
+QA_MIN_RUNS = 4                    # פחות ריצות ב-3 שעות = ההפעלה החיצונית לא עובדת
 # ---- כללי ----
 MAX_AGE = timedelta(hours=3)
 MAX_MSGS_PER_RUN = 12
@@ -376,6 +381,66 @@ def weekly_report(st, src_names):
     return "\n".join(lines)
 
 
+# ------------------------------------------------------------ QA
+
+def win_add(u, now_iso, **kw):
+    """מונים לחלון 3 שעות (w3) ולחלון יומי (w24)."""
+    for key in ("w3", "w24"):
+        w = u.setdefault(key, {"start": now_iso})
+        for k, v in kw.items():
+            if k == "src_fail":
+                d = w.setdefault("src_fail", {})
+                for s in v:
+                    d[s] = d.get(s, 0) + 1
+            else:
+                w[k] = w.get(k, 0) + v
+
+
+def qa_check(u, now, src_names):
+    """בודק את חלון 3 השעות. מחזיר רשימת בעיות (ריקה = תקין) ומאפס את החלון."""
+    w = u.get("w3")
+    if not w:
+        return None
+    start = parse_date(w.get("start"))
+    if not start or now - start < timedelta(hours=QA_EVERY_H):
+        return None
+    hours = max((now - start).total_seconds() / 3600, 0.1)
+    issues = []
+    runs, calls = w.get("runs", 0), w.get("calls", 0)
+    if runs < QA_MIN_RUNS:
+        issues.append(f"רק {runs} ריצות ב-{hours:.0f} שעות (צפוי ~{int(hours * 6)}) – בדוק את cron-job.org")
+    if calls:
+        avg_out = w.get("out", 0) / calls
+        if avg_out > QA_MAX_AVG_OUT:
+            issues.append(f"ממוצע {avg_out:.0f} טוקני תשובה לקריאה (צפוי מאות) – חשד לדליפת טוקנים")
+    proj = w.get("cost", 0.0) / hours * 24
+    if proj > MAX_COST_PER_DAY * 0.8:
+        issues.append(f"קצב עלות ${proj:.2f} ליום – קרוב לתקרה (${MAX_COST_PER_DAY})")
+    if w.get("truncs", 0):
+        issues.append(f"{w['truncs']} תשובות נחתכו (max_tokens)")
+    if w.get("fails", 0) >= 2:
+        issues.append(f"{w['fails']} סיכומים נכשלו")
+    bad = [src_names.get(s, s) for s, n in w.get("src_fail", {}).items() if runs and n >= runs * 0.5]
+    if bad:
+        issues.append(f"מקורות שלא נקראים: {', '.join(bad)}")
+    u["w3"] = {"start": now.isoformat()}
+    return issues
+
+
+def health_report(u, now):
+    w = u.get("w24", {})
+    calls = w.get("calls", 0)
+    avg_out = (w.get("out", 0) / calls) if calls else 0
+    cost = w.get("cost", 0.0)
+    u["w24"] = {"start": now.isoformat()}
+    return (f"🩺 <b>דוח בריאות יומי</b> · גרסה {VERSION}\n"
+            f"ריצות: {w.get('runs', 0)} · סיכומי AI: {calls} · הודעות שנשלחו: {w.get('sent', 0)}\n"
+            f"עלות 24 שעות: ${cost:.3f} (≈ ${cost * 30:.2f} לחודש) · ממוצע תשובה: {avg_out:.0f} טוקנים\n"
+            f"כישלונות: {w.get('fails', 0)} · תשובות שנחתכו: {w.get('truncs', 0)}\n"
+            f"עלות מצטברת שנמדדה: ${u.get('total_cost', 0.0):.2f}\n"
+            f"<i>לא הגיע דוח כזה יום אחד? הבוט לא רץ.</i>")
+
+
 # ------------------------------------------------------------ ריצה
 
 def main():
@@ -407,6 +472,19 @@ def main():
             st["stats"] = {}
         u.update(week=week, week_cost=0.0, week_calls=0)
 
+    win_add(u, stamp_now := now.isoformat(), runs=1)
+    if not first_run:
+        issues = qa_check(u, now, src_names)
+        if issues:
+            tg_send(token, chat, "🩺 <b>בדיקת QA – נמצאו בעיות</b>\n• " +
+                    "\n• ".join(html.escape(i) for i in issues))
+        if now.astimezone(IL).hour >= HEALTH_HOUR and u.get("health_day") != today:
+            if u.get("health_day"):
+                tg_send(token, chat, health_report(u, now))
+            else:
+                u["w24"] = {"start": now.isoformat(), "runs": 1}
+            u["health_day"] = today
+
     last_ai = parse_date(u.get("last_ai", ""))
     if not first_run and api_key and last_ai and now - last_ai < timedelta(minutes=MIN_AI_INTERVAL_MIN):
         print(f"סיכום אחרון לפני פחות מ-{MIN_AI_INTERVAL_MIN} דק' – מחכה לריצה הבאה")
@@ -414,6 +492,8 @@ def main():
         return
 
     items, failed = collect(sources)
+    if failed:
+        win_add(u, now.isoformat(), src_fail=failed)
     new, ids = [], set()
     for it in items:
         if it["id"] in st["seen"] or it["id"] in ids:
@@ -488,6 +568,7 @@ def main():
         u["day_cost"] = u.get("day_cost", 0.0) + cost
         u["week_cost"] = u.get("week_cost", 0.0) + cost
         u["total_cost"] = u.get("total_cost", 0.0) + cost
+        win_add(u, stamp, calls=1, cost=cost, out=tout, truncs=1 if stop == "max_tokens" else 0)
         print(f"AI ניסיון {attempt + 1}: {tin} in / {tout} out = ${cost:.4f} (stop={stop}, {len(batch)} ידיעות)")
         if result is not None:
             break
@@ -496,6 +577,7 @@ def main():
             batch = batch[-(len(batch) // 2):]   # נחתך – מנסים עם חצי מהידיעות
     if result is None:
         u["fails"] = u.get("fails", 0) + 1
+        win_add(u, stamp, fails=1)
         print(f"שגיאת AI ({u['fails']} ברצף): {err}")
         hint = "\n(נגמר הקרדיט – צריך לטעון)" if re.search(r"credit|balance", str(err), re.I) else ""
         if u["fails"] >= FAIL_PAUSE_AFTER:
@@ -532,6 +614,7 @@ def main():
         time.sleep(3.2)
     st["events"] = stored[-60:]
     save_state(st)
+    win_add(u, stamp, sent=sent_ok)
     print(f"נשלחו {sent_ok}/{len(events)} אירועים")
 
 

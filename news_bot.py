@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 
-VERSION = "2.2.0"
+VERSION = "2.2.1"
 IL = ZoneInfo("Asia/Jerusalem")
 BASE = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(BASE, "state.json")
@@ -228,17 +228,31 @@ def call_claude(api_key, items, recent_events):
     payload_items = [{"id": i + 1, "kind": it["kind"], "source": it["source"], "text": it["clean"]}
                      for i, it in enumerate(items)]
     user = json.dumps({"recent_events": recent_events, "items": payload_items}, ensure_ascii=False)
-    body = json.dumps({
-        "model": MODEL, "max_tokens": MAX_OUT_TOKENS, "system": SYSTEM_PROMPT,
-        "messages": [{"role": "user", "content": user}]}).encode()
-    req = urllib.request.Request("https://api.anthropic.com/v1/messages", data=body, headers={
-        "x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=90) as r:
-            data = json.loads(r.read())
-    except urllib.error.HTTPError as e:
-        raise RuntimeError(f"API {e.code}: {e.read().decode('utf-8', 'ignore')[:300]}")
-    text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+    payload = {"model": MODEL, "max_tokens": MAX_OUT_TOKENS, "system": SYSTEM_PROMPT,
+               "thinking": {"type": "disabled"},   # סיכום לא צריך "חשיבה" – היא מחויבת כטוקני תשובה
+               "messages": [{"role": "user", "content": user}]}
+    data = None
+    for _ in range(2):
+        req = urllib.request.Request("https://api.anthropic.com/v1/messages",
+                                     data=json.dumps(payload).encode(), headers={
+            "x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=90) as r:
+                data = json.loads(r.read())
+            break
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", "ignore")[:300]
+            if e.code == 400 and "thinking" in body and "thinking" in payload:
+                print(f"הפרמטר thinking נדחה, שולח בלעדיו: {body}")
+                payload.pop("thinking")
+                continue
+            raise RuntimeError(f"API {e.code}: {body}")
+    blocks = data.get("content", [])
+    kinds = {}
+    for b in blocks:
+        kinds[b.get("type")] = kinds.get(b.get("type"), 0) + len(b.get("text", "") or b.get("thinking", "") or "")
+    print(f"סוגי תוכן בתשובה (תווים): {kinds}")
+    text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
     usage = data.get("usage", {})
     tin, tout = usage.get("input_tokens", 0), usage.get("output_tokens", 0)
     stop = data.get("stop_reason")

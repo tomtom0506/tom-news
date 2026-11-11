@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 
-VERSION = "2.3.0"
+VERSION = "2.3.1"
 IL = ZoneInfo("Asia/Jerusalem")
 BASE = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(BASE, "state.json")
@@ -41,7 +41,7 @@ FAIL_PAUSE_MIN = 60
 # ---- QA ----
 QA_EVERY_H = 3                     # בדיקת חריגות כל 3 שעות (הודעה רק אם יש בעיה)
 HEALTH_HOUR = 9                    # דוח בריאות יומי בשעה 9:00
-QA_MAX_AVG_OUT = 1200              # יותר טוקני תשובה בממוצע = חשד לדליפה
+QA_MAX_AVG_OUT = 3500              # ממוצע קרוב לתקרת התשובה (4000) = חשד לדליפה/חיתוך
 QA_MIN_RUNS = 4                    # פחות ריצות ב-3 שעות = ההפעלה החיצונית לא עובדת
 # ---- כללי ----
 MAX_AGE = timedelta(hours=3)
@@ -412,7 +412,7 @@ def qa_check(u, now, src_names):
     if calls:
         avg_out = w.get("out", 0) / calls
         if avg_out > QA_MAX_AVG_OUT:
-            issues.append(f"ממוצע {avg_out:.0f} טוקני תשובה לקריאה (צפוי מאות) – חשד לדליפת טוקנים")
+            issues.append(f"ממוצע {avg_out:.0f} טוקני תשובה לקריאה (תקין: ~2,500) – חשד לדליפת טוקנים")
     proj = w.get("cost", 0.0) / hours * 24
     if proj > MAX_COST_PER_DAY * 0.8:
         issues.append(f"קצב עלות ${proj:.2f} ליום – קרוב לתקרה (${MAX_COST_PER_DAY})")

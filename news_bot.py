@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 
-VERSION = "2.1.1"
+VERSION = "2.2.0"
 IL = ZoneInfo("Asia/Jerusalem")
 BASE = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(BASE, "state.json")
@@ -30,10 +30,14 @@ SOURCES_FILE = os.path.join(BASE, "sources.json")
 # ---- הגנות עלות ----
 MODEL = "claude-haiku-5-5"
 PRICE_IN, PRICE_OUT = 0.10, 0.50   # דולר למיליון טוקנים (Haiku 5.5, עד 100K)
-MAX_CALLS_PER_DAY = 150            # תקרת קריאות AI ביום
-MAX_ITEMS_PER_CALL = 60            # לכל היותר ידיעות בקריאה אחת
-MAX_ITEM_CHARS = 350               # חיתוך כל ידיעה לפני השליחה ל-AI
-MAX_OUT_TOKENS = 2000
+MAX_CALLS_PER_DAY = 90             # תקרת קריאות AI ביום (כולל כושלות)
+MAX_COST_PER_DAY = 0.15            # תקרת עלות יומית בדולרים (כולל כושלות)
+MIN_AI_INTERVAL_MIN = 20           # לכל היותר סיכום אחד כל 20 דקות
+MAX_ITEMS_PER_CALL = 25            # לכל היותר ידיעות בקריאה אחת
+MAX_ITEM_CHARS = 300               # חיתוך כל ידיעה לפני השליחה ל-AI
+MAX_OUT_TOKENS = 4000
+FAIL_PAUSE_AFTER = 3               # אחרי 3 כישלונות ברצף – הפסקה
+FAIL_PAUSE_MIN = 60
 # ---- כללי ----
 MAX_AGE = timedelta(hours=3)
 MAX_MSGS_PER_RUN = 12
@@ -64,13 +68,13 @@ SYSTEM_PROMPT = """אתה עורך חדשות. תקבל רשימת ידיעות 
 4. אם יש מידע חדש מהותי על אירוע קודם – status "update" עם ref של האירוע הקודם.
 5. אם אירוע קודם היה שמועה (verified=false) ועכשיו כלי תקשורת (kind=media) מדווח עליו – status "confirmed" עם ref.
 6. verified=true רק אם לפחות ידיעה אחת מסוג media תומכת באירוע. ידיעות telegram בלבד = שמועה.
-7. headline: עד 12 מילים. summary: משפט או שניים, עד 40 מילים. ניסוח ניטרלי ועובדתי, בלי להוסיף עובדות שלא מופיעות בידיעות, בלי פרטים גרפיים.
+7. headline: עד 10 מילים. summary: משפט אחד, עד 25 מילים. ניסוח ניטרלי ועובדתי, בלי להוסיף עובדות שלא מופיעות בידיעות, בלי פרטים גרפיים.
 8. importance: 3 = דחוף/ביטחוני מהותי, 2 = חשוב, 1 = שולי.
 9. ידיעות יכולות להיות בכל שפה (עברית, אנגלית, ערבית, פרסית). תמיד כתוב בעברית.
 10. כלכלה ושווקים: דווח רק על מה שמזיז שווקים – החלטות בנקים מרכזיים, נתוני מאקרו מרכזיים, תנועות חדות במדדים/נפט/מטבעות, אירועים מהותיים בחברות גדולות. נתוני מסחר שגרתיים (imbalance, זרימות, דוחות קטנים) = importance 1.
 11. ידיעה ממקור בפרסית/ערבית שמוסיפה זווית שלא מופיעה במקורות אחרים – ציין זאת בסיכום ("לפי תקשורת איראנית/ערבית")
 
-החזר JSON בלבד, בלי טקסט נוסף ובלי ```:
+החזר JSON בלבד, קומפקטי, בלי רווחים מיותרים, בלי טקסט נוסף ובלי ```. אל תכלול ב-junk/dup ידיעות שכבר שויכו לאירוע:
 {"events":[{"status":"new|update|confirmed","ref":null,"headline":"...","summary":"...","verified":true,"importance":2,"item_ids":[1,2]}],"junk":[3,4],"dup":[5]}"""
 
 
@@ -237,7 +241,11 @@ def call_claude(api_key, items, recent_events):
     text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
     usage = data.get("usage", {})
     tin, tout = usage.get("input_tokens", 0), usage.get("output_tokens", 0)
-    return extract_json(text, data.get("stop_reason")), tin, tout
+    stop = data.get("stop_reason")
+    try:
+        return extract_json(text, stop), tin, tout, stop
+    except ValueError:
+        return None, tin, tout, stop
 
 
 def extract_json(text, stop_reason=None):
@@ -378,12 +386,18 @@ def main():
     week = now.astimezone(IL).strftime("%G-W%V")
     u = st.setdefault("usage", {})
     if u.get("day") != today:
-        u.update(day=today, day_calls=0, cap_notified=False)
+        u.update(day=today, day_calls=0, day_cost=0.0, cap_notified=False)
     if u.get("week") != week:
         if u.get("week") and st.get("stats"):
             tg_send(token, chat, weekly_report(st, src_names))
             st["stats"] = {}
         u.update(week=week, week_cost=0.0, week_calls=0)
+
+    last_ai = parse_date(u.get("last_ai", ""))
+    if not first_run and api_key and last_ai and now - last_ai < timedelta(minutes=MIN_AI_INTERVAL_MIN):
+        print(f"סיכום אחרון לפני פחות מ-{MIN_AI_INTERVAL_MIN} דק' – מחכה לריצה הבאה")
+        save_state(st)
+        return
 
     items, failed = collect(sources)
     new, ids = [], set()
@@ -427,10 +441,16 @@ def main():
         print("אין ANTHROPIC_API_KEY – מדלג על סיכום")
         save_state(st)
         return
-    if u.get("day_calls", 0) >= MAX_CALLS_PER_DAY:
+    if u.get("day_calls", 0) >= MAX_CALLS_PER_DAY or u.get("day_cost", 0.0) >= MAX_COST_PER_DAY:
         if not u.get("cap_notified"):
-            tg_send(token, chat, f"⏸️ הגעתי לתקרה היומית ({MAX_CALLS_PER_DAY} סיכומים). ממשיך מחר.")
+            tg_send(token, chat, f"⏸️ הגעתי לתקרה היומית (${u.get('day_cost', 0):.2f}, "
+                                 f"{u.get('day_calls', 0)} קריאות). ממשיך מחר.")
             u["cap_notified"] = True
+        save_state(st)
+        return
+    paused = parse_date(u.get("paused_until", ""))
+    if paused and now < paused:
+        print(f"מושהה עד {paused}")
         save_state(st)
         return
 
@@ -441,33 +461,40 @@ def main():
     recent = recent[-RECENT_EVENTS_KEEP:]
     recent_for_ai = [{"ref": e["ref"], "headline": e["h"], "verified": e["v"]} for e in recent]
 
-    result, tin, tout, err = None, 0, 0, None
+    result, err = None, None
     for attempt in range(2):
         try:
-            result, a, b = call_claude(api_key, batch, recent_for_ai)
-            tin, tout = tin + a, tout + b
-            break
-        except ValueError as e:      # תשובה לא תקינה – ננסה שוב פעם אחת
-            err = e
-            print(f"ניסיון {attempt + 1}: {e}")
-        except Exception as e:       # שגיאת API/רשת – לא מנסים שוב
+            result, tin, tout, stop = call_claude(api_key, batch, recent_for_ai)
+        except Exception as e:          # שגיאת API/רשת – לא מנסים שוב
             err = e
             break
+        cost = tin / 1e6 * PRICE_IN + tout / 1e6 * PRICE_OUT
+        u["day_calls"] = u.get("day_calls", 0) + 1
+        u["week_calls"] = u.get("week_calls", 0) + 1
+        u["day_cost"] = u.get("day_cost", 0.0) + cost
+        u["week_cost"] = u.get("week_cost", 0.0) + cost
+        u["total_cost"] = u.get("total_cost", 0.0) + cost
+        print(f"AI ניסיון {attempt + 1}: {tin} in / {tout} out = ${cost:.4f} (stop={stop}, {len(batch)} ידיעות)")
+        if result is not None:
+            break
+        err = ValueError(f"תשובה לא תקינה (stop={stop})")
+        if stop == "max_tokens" and len(batch) > 5:
+            batch = batch[-(len(batch) // 2):]   # נחתך – מנסים עם חצי מהידיעות
     if result is None:
-        print(f"שגיאת AI: {err}")
-        if u.get("err_day") != today:
-            hint = "\n(נגמר הקרדיט – צריך לטעון)" if re.search(r"credit|balance", str(err), re.I) else ""
+        u["fails"] = u.get("fails", 0) + 1
+        print(f"שגיאת AI ({u['fails']} ברצף): {err}")
+        hint = "\n(נגמר הקרדיט – צריך לטעון)" if re.search(r"credit|balance", str(err), re.I) else ""
+        if u["fails"] >= FAIL_PAUSE_AFTER:
+            u["paused_until"] = (now + timedelta(minutes=FAIL_PAUSE_MIN)).isoformat()
+            u["fails"] = 0
+            tg_send(token, chat, f"⚠️ {FAIL_PAUSE_AFTER} כישלונות ברצף – משהה את הסיכום לשעה.\n"
+                                 f"{html.escape(str(err)[:200])}{hint}")
+        elif u.get("fails") == 1 and hint:
             tg_send(token, chat, f"⚠️ הסיכום נכשל: {html.escape(str(err)[:200])}{hint}")
-            u["err_day"] = today
         save_state(st)
         return
-
-    cost = tin / 1e6 * PRICE_IN + tout / 1e6 * PRICE_OUT
-    u["day_calls"] = u.get("day_calls", 0) + 1
-    u["week_calls"] = u.get("week_calls", 0) + 1
-    u["week_cost"] = u.get("week_cost", 0.0) + cost
-    u["total_cost"] = u.get("total_cost", 0.0) + cost
-    print(f"AI: {tin} in / {tout} out = ${cost:.4f}")
+    u["fails"] = 0
+    u["last_ai"] = stamp
 
     for iid in result.get("junk", []):
         if isinstance(iid, int) and 1 <= iid <= len(batch):
@@ -479,17 +506,19 @@ def main():
     events = sorted(result.get("events", []), key=lambda e: -int(e.get("importance") or 1))
     events = [e for e in events if int(e.get("importance") or 1) >= MIN_IMPORTANCE][:MAX_MSGS_PER_RUN]
     stored = st.setdefault("events", [])
+    sent_ok = 0
     for ev in events:
         for iid in ev.get("item_ids", []):
             if isinstance(iid, int) and 1 <= iid <= len(batch):
                 bump(st, batch[iid - 1]["source"], "used")
-        tg_send(token, chat, fmt_event(ev, batch, src_names, now))
+        if tg_send(token, chat, fmt_event(ev, batch, src_names, now)):
+            sent_ok += 1
         ref = hashlib.md5((ev.get("headline", "") + stamp).encode()).hexdigest()[:6]
         stored.append({"ref": ref, "h": ev.get("headline", ""), "v": bool(ev.get("verified")), "t": stamp})
         time.sleep(3.2)
     st["events"] = stored[-60:]
     save_state(st)
-    print(f"נשלחו {len(events)} אירועים")
+    print(f"נשלחו {sent_ok}/{len(events)} אירועים")
 
 
 if __name__ == "__main__":

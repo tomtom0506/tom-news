@@ -2,10 +2,20 @@
 <html lang="he" dir="rtl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-vhK2dEKQjGEdIKhJImQNJ4AinVHppFbLFOkgtbee0J4='; style-src 'unsafe-inline'; connect-src 'self' https://api.github.com; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-fn2ARjQmlkJidFOZ9oTj0Uc6xlHrjpS+nuLz348JyZg='; style-src 'unsafe-inline'; connect-src 'self' https://api.github.com; img-src 'self' data:; manifest-src 'self'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="icon" href="icons/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="החדשות">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1216" media="(prefers-color-scheme: dark)">
 <title>החדשות של תומר</title>
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--text:#1a1d21;--muted:#5d6670;--line:#e2e6ea;--accent:#1f6feb;--red:#d1242f;--green:#1a7f37;--amber:#9a6700;--chip:#eef1f4;}
@@ -14,7 +24,9 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Arial,sans-serif;}
 header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px 4px;max-width:760px;margin:0 auto}
-h1{font-size:20px;margin:0}
+h1{font-size:20px;margin:0;display:flex;align-items:center;gap:8px}
+.logo{width:28px;height:28px}
+header{padding-top:max(12px,env(safe-area-inset-top))}
 .sub{color:var(--muted);font-size:13px;padding:0 16px;max-width:760px;margin:0 auto}
 nav{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);display:flex;gap:4px;padding:8px 16px;max-width:760px;margin:0 auto}
 nav button{flex:1;border:0;background:transparent;color:var(--muted);font:inherit;font-weight:600;padding:8px;border-radius:8px;cursor:pointer}
@@ -63,7 +75,7 @@ footer .link{background:none;border:0;color:var(--muted);font:inherit;font-size:
 </style>
 </head>
 <body>
-<header><h1>החדשות של תומר</h1><span><button class="icon" id="refresh" type="button" aria-label="רענון">⟳</button> <button class="icon" id="theme" type="button" aria-label="מצב תצוגה">🌓</button></span></header>
+<header><h1><img class="logo" src="icons/icon.svg" alt="">החדשות של תומר</h1><span><button class="icon" id="refresh" type="button" aria-label="רענון">⟳</button> <button class="icon" id="theme" type="button" aria-label="מצב תצוגה">🌓</button></span></header>
 <div class="update" id="update" hidden><span id="updtext">גרסה חדשה זמינה</span> <button class="btn" id="updbtn" type="button">רענן</button></div>
 <div class="sub" id="lastrun">טוען…</div>
 <nav role="tablist">
@@ -112,7 +124,7 @@ footer .link{background:none;border:0;color:var(--muted);font:inherit;font-size:
 </main>
 <script>
 "use strict";
-var SITE_VERSION = "3.1.0";
+var SITE_VERSION = "3.2.0";
 var REFRESH_MS = 5 * 60 * 1000;
 var OWNER = "tomtom0506", REPO = "tom-news", BRANCH = "main", PATH = "settings.json";
 var API = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/contents/" + PATH;

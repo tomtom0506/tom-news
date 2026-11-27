@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""tom-news v2.0.0 — בוט חדשות אישי לטלגרם, עם סיכום AI.
+"""tom-news v3.0.0 — בוט חדשות אישי: אתר לקריאה, טלגרם רק לדחוף.
 
-כל ריצה: אוסף ידיעות חדשות מכלי תקשורת (RSS) ומערוצי טלגרם ציבוריים,
-מסנן זבל וכפילויות מקומית (בחינם), ושולח את מה שנשאר לסיכום אחד ב-Claude Haiku.
-Claude מאחד ידיעות על אותו אירוע להודעה אחת בעברית, עם סטטוס מאומת/שמועה.
-פעם בשבוע: דוח עלות + דוח רעש לכל מקור, כדי לזהות ערוצים שמכניסים זבל.
+כל ריצה: קורא את settings.json, אוסף ידיעות מכלי תקשורת (RSS) ומערוצי טלגרם ציבוריים
+(רק מקורות פעילים לפי ההגדרות), מסנן זבל וכפילויות מקומית (בחינם), ושולח את מה שנשאר
+לסיכום אחד ב-Claude Haiku. האירועים נשמרים ל-docs/data/events.json (האתר), ורק אירועים
+דחופים (חשיבות 3) נשלחים לטלגרם. 3 פעמים ביום נוצר סיכום יומי ל-docs/data/daily.json.
+התראות מערכת (QA, תקרה, כישלונות, דוחות) נשלחות לטלגרם תמיד.
 """
 import hashlib
 import html
@@ -21,16 +22,19 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 
-VERSION = "2.3.1"
+VERSION = "3.0.0"
 IL = ZoneInfo("Asia/Jerusalem")
 BASE = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(BASE, "state.json")
 SOURCES_FILE = os.path.join(BASE, "sources.json")
+SETTINGS_FILE = os.path.join(BASE, "settings.json")
+DATA_DIR = os.path.join(BASE, "docs", "data")
+SITE_URL = "https://tomtom0506.github.io/tom-news/"
 
-# ---- הגנות עלות ----
+# ---- הגנות עלות (אסור להחליש בלי אישור) ----
 MODEL = "claude-haiku-5-5"
 PRICE_IN, PRICE_OUT = 0.10, 0.50   # דולר למיליון טוקנים (Haiku 5.5, עד 100K)
-MAX_CALLS_PER_DAY = 90             # תקרת קריאות AI ביום (כולל כושלות)
+MAX_CALLS_PER_DAY = 90             # תקרת קריאות AI ביום (כולל כושלות, כולל סיכום יומי)
 MAX_COST_PER_DAY = 0.15            # תקרת עלות יומית בדולרים (כולל כושלות)
 MIN_AI_INTERVAL_MIN = 20           # לכל היותר סיכום אחד כל 20 דקות
 MAX_ITEMS_PER_CALL = 25            # לכל היותר ידיעות בקריאה אחת
@@ -38,6 +42,12 @@ MAX_ITEM_CHARS = 300               # חיתוך כל ידיעה לפני השל�
 MAX_OUT_TOKENS = 4000
 FAIL_PAUSE_AFTER = 3               # אחרי 3 כישלונות ברצף – הפסקה
 FAIL_PAUSE_MIN = 60
+# ---- סיכום יומי ----
+DAILY_SLOTS = (8, 13, 19)          # שעון ישראל
+DAILY_WINDOW_H = 2                 # החלון פתוח שעתיים מכל שעת התחלה
+DAILY_MAX_EVENTS = 60              # כמה אירועים של היום נשלחים ל-AI לכל היותר
+DAILY_MAX_TOKENS = 800
+DAILY_TOP = 4
 # ---- QA ----
 QA_EVERY_H = 3                     # בדיקת חריגות כל 3 שעות (הודעה רק אם יש בעיה)
 HEALTH_HOUR = 9                    # דוח בריאות יומי בשעה 9:00
@@ -46,13 +56,37 @@ QA_MIN_RUNS = 4                    # פחות ריצות ב-3 שעות = ההפ�
 # ---- כללי ----
 MAX_AGE = timedelta(hours=3)
 MAX_MSGS_PER_RUN = 12
-MIN_IMPORTANCE = 2                 # אירועים שוליים (1) לא נשלחים
+TG_MIN_IMPORTANCE = 3              # לטלגרם נשלחים רק אירועים דחופים
+MIN_IMPORTANCE = 2                 # אירועים שוליים (1) לא נכנסים להקשר של ה-AI
 RECENT_EVENTS_KEEP = 25            # אירועים אחרונים שנשלחים ל-AI לצורך איחוד ואימות
 RECENT_EVENTS_HOURS = 6
+EVENTS_KEEP_DAYS = 7               # כמה ימים נשמרים באתר
+MAX_LINKS_PER_EVENT = 8
 DUP_KEEP = 400                     # טביעות טקסט לזיהוי כפילויות
 DUP_THRESHOLD = 0.6
 KEEP_SEEN = 6000
-UA = "Mozilla/5.0 (compatible; tom-news/2.0)"
+UA = "Mozilla/5.0 (compatible; tom-news/3.0)"
+
+# ---- נושאים ומדינות ----
+TOPICS = ["ביטחון", "פוליטיקה", "כלכלה", "עולם", "טכנולוגיה"]
+TOPIC_CODES = {"sec": "ביטחון", "pol": "פוליטיקה", "eco": "כלכלה", "wld": "עולם", "tec": "טכנולוגיה"}
+CODE_OF_TOPIC = {v: k for k, v in TOPIC_CODES.items()}
+OTHER_TOPIC = "אחר"
+COUNTRY_NAMES = {
+    "IL": "ישראל", "PS": "עזה/יו\"ש", "LB": "לבנון", "SY": "סוריה", "IR": "איראן", "IQ": "עיראק",
+    "YE": "תימן", "JO": "ירדן", "EG": "מצרים", "SA": "ערב הסעודית", "AE": "איחוד האמירויות",
+    "QA": "קטאר", "TR": "טורקיה", "US": "ארה\"ב", "GB": "בריטניה", "FR": "צרפת", "DE": "גרמניה",
+    "RU": "רוסיה", "UA": "אוקראינה", "CN": "סין", "IN": "הודו", "JP": "יפן", "EU": "האיחוד האירופי",
+    "XX": "בינלאומי",
+}
+DEFAULT_SETTINGS = {
+    "telegram_enabled": True,
+    "ai_enabled": True,
+    "topics": {t: True for t in TOPICS},
+    "source_countries": [],
+    "event_countries": [],
+    "sources": {},
+}
 
 # שורות "חתימה" של ערוצים שאין בהן תוכן
 BOILER_RE = re.compile(
@@ -74,13 +108,115 @@ SYSTEM_PROMPT = """אתה עורך חדשות. תקבל רשימת ידיעות 
 5. אם אירוע קודם היה שמועה (verified=false) ועכשיו כלי תקשורת (kind=media) מדווח עליו – status "confirmed" עם ref.
 6. verified=true רק אם לפחות ידיעה אחת מסוג media תומכת באירוע. ידיעות telegram בלבד = שמועה.
 7. headline: עד 10 מילים. summary: משפט אחד, עד 25 מילים. ניסוח ניטרלי ועובדתי, בלי להוסיף עובדות שלא מופיעות בידיעות, בלי פרטים גרפיים.
-8. importance: 3 = דחוף/ביטחוני מהותי, 2 = חשוב, 1 = שולי.
+8. importance: 3 = דחוף/ביטחוני מהותי (רק 3 נשלח כהתראה לטלפון – שמור אותו לדחוף באמת), 2 = חשוב, 1 = שולי.
 9. ידיעות יכולות להיות בכל שפה (עברית, אנגלית, ערבית, פרסית). תמיד כתוב בעברית.
 10. כלכלה ושווקים: דווח רק על מה שמזיז שווקים – החלטות בנקים מרכזיים, נתוני מאקרו מרכזיים, תנועות חדות במדדים/נפט/מטבעות, אירועים מהותיים בחברות גדולות. נתוני מסחר שגרתיים (imbalance, זרימות, דוחות קטנים) = importance 1.
 11. ידיעה ממקור בפרסית/ערבית שמוסיפה זווית שלא מופיעה במקורות אחרים – ציין זאת בסיכום ("לפי תקשורת איראנית/ערבית")
+12. tp: נושא האירוע – sec ביטחון, pol פוליטיקה, eco כלכלה, wld עולם (חדשות חוץ אחרות), tec טכנולוגיה. topics בקלט = הנושאים הפעילים בלבד: אירוע שהנושא שלו לא ברשימה – אל תיצור אותו, וסמן את ידיעותיו כ-junk.
+13. ec: איפה האירוע קרה – קוד מדינה ISO בן 2 אותיות (IL, PS לעזה/יו"ש, LB, IR, US...), XX אם אין מדינה אחת.
 
 החזר JSON בלבד, קומפקטי, בלי רווחים מיותרים, בלי טקסט נוסף ובלי ```. אל תכלול ב-junk/dup ידיעות שכבר שויכו לאירוע:
-{"events":[{"status":"new|update|confirmed","ref":null,"headline":"...","summary":"...","verified":true,"importance":2,"item_ids":[1,2]}],"junk":[3,4],"dup":[5]}"""
+{"events":[{"status":"new|update|confirmed","ref":null,"headline":"...","summary":"...","verified":true,"importance":2,"tp":"sec","ec":"IL","item_ids":[1,2]}],"junk":[3,4],"dup":[5]}"""
+
+DAILY_PROMPT = """אתה עורך חדשות. תקבל את האירועים של היום (i מספר, h כותרת, s סיכום, imp חשיבות 1-3, v: y מאומת / n שמועה).
+כתוב סיכום של היום בעברית: 2–3 משפטים קצרים, ניטרליים ועובדתיים, רק ממה שמופיע ברשימה. העדף אירועים מאומתים.
+בחר 3–4 אירועים החשובים ביותר.
+החזר JSON בלבד, קומפקטי, בלי טקסט נוסף ובלי ```:
+{"s":"...","top":[1,2,3]}"""
+
+
+# ------------------------------------------------------------ הגדרות ומקורות
+
+def load_settings(path=None):
+    """קורא את settings.json. חסר/שבור/ערך לא תקין = ברירת מחדל לאותו שדה. מחזיר (הגדרות, תקין?)."""
+    path = path or SETTINGS_FILE
+    out = json.loads(json.dumps(DEFAULT_SETTINGS))
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = json.load(f)
+    except FileNotFoundError:
+        print("settings.json חסר – ברירות מחדל")
+        return out, True
+    except Exception as e:
+        print(f"settings.json שבור ({type(e).__name__}) – ברירות מחדל")
+        return out, False
+    if not isinstance(raw, dict):
+        print("settings.json לא אובייקט – ברירות מחדל")
+        return out, False
+    ok = True
+    for k in ("telegram_enabled", "ai_enabled"):
+        if k in raw:
+            if isinstance(raw[k], bool):
+                out[k] = raw[k]
+            else:
+                ok = False
+    if "topics" in raw:
+        if isinstance(raw["topics"], dict):
+            for t, v in raw["topics"].items():
+                if t in out["topics"] and isinstance(v, bool):
+                    out["topics"][t] = v
+        else:
+            ok = False
+    for k in ("source_countries", "event_countries"):
+        if k in raw:
+            if isinstance(raw[k], list):
+                out[k] = [c for c in raw[k] if isinstance(c, str) and c.strip()]
+            else:
+                ok = False
+    if "sources" in raw:
+        if isinstance(raw["sources"], dict):
+            out["sources"] = {s: v for s, v in raw["sources"].items() if isinstance(v, bool)}
+        else:
+            ok = False
+    if not ok:
+        print("settings.json: חלק מהערכים לא תקינים – הוחלפו בברירת מחדל")
+    return out, ok
+
+
+def _topics_of(s):
+    t = [x for x in (s.get("topics") or []) if x in TOPICS]
+    return t or list(TOPICS)
+
+
+def normalize_sources(raw):
+    """sources.json → רשימה אחידה: id (לסטטיסטיקה ולהגדרות), name (לתצוגה), kind, url, country, topics."""
+    names = raw.get("telegram_names", {})
+    out = []
+    for s in raw.get("media", []):
+        out.append({"id": s["name"], "name": s.get("title") or s["name"], "kind": "media", "url": s["url"],
+                    "country": s.get("country") or "בינלאומי", "topics": _topics_of(s)})
+    for ch in raw.get("telegram", []):
+        if isinstance(ch, str):
+            ch = {"name": ch}
+        cid = ch["name"]
+        out.append({"id": cid, "name": ch.get("title") or names.get(cid, cid), "kind": "telegram",
+                    "url": f"https://t.me/s/{cid}", "country": ch.get("country") or "בינלאומי",
+                    "topics": _topics_of(ch)})
+    return out
+
+
+def active_topics(settings):
+    return [t for t in TOPICS if settings["topics"].get(t, True)]
+
+
+def source_active(src, settings):
+    if not settings["sources"].get(src["id"], True):
+        return False
+    if not any(settings["topics"].get(t, True) for t in src["topics"]):
+        return False
+    sc = settings["source_countries"]
+    return not sc or src["country"] in sc
+
+
+def country_name(code):
+    if not isinstance(code, str) or not code.strip():
+        return COUNTRY_NAMES["XX"]
+    code = code.strip().upper()
+    return COUNTRY_NAMES.get(code, code)
+
+
+def safe_link(u):
+    return u if isinstance(u, str) and re.match(r"^https?://", u, re.I) else ""
 
 
 # ------------------------------------------------------------ איסוף
@@ -165,25 +301,21 @@ def parse_tg(page, channel):
 
 
 def collect(sources):
+    """sources = רשימה מנורמלת של המקורות הפעילים בלבד."""
     items, failed = [], []
-    for s in sources.get("media", []):
+    for s in sources:
         try:
-            got = parse_feed(fetch(s["url"]), s["name"])
+            if s["kind"] == "media":
+                got = parse_feed(fetch(s["url"]), s["id"])
+            else:
+                got = parse_tg(fetch(s["url"]).decode("utf-8", "ignore"), s["id"])
             items += got
-            print(f"✓ {s['name']}: {len(got)}")
+            if not got and s["kind"] == "telegram":
+                failed.append(s["id"])
+            print(f"{'✓' if got or s['kind'] == 'media' else '✗'} {s['id']}: {len(got)}")
         except Exception as e:
-            failed.append(s["name"])
-            print(f"✗ {s['name']}: {type(e).__name__}: {e}")
-    for ch in sources.get("telegram", []):
-        try:
-            got = parse_tg(fetch(f"https://t.me/s/{ch}").decode("utf-8", "ignore"), ch)
-            items += got
-            if not got:
-                failed.append(ch)
-            print(f"{'✓' if got else '✗'} tg/{ch}: {len(got)}")
-        except Exception as e:
-            failed.append(ch)
-            print(f"✗ tg/{ch}: {type(e).__name__}: {e}")
+            failed.append(s["id"])
+            print(f"✗ {s['id']}: {type(e).__name__}: {e}")
     return items, failed
 
 
@@ -229,13 +361,11 @@ def local_filter(items, state):
 
 # ------------------------------------------------------------ Claude
 
-def call_claude(api_key, items, recent_events):
-    payload_items = [{"id": i + 1, "kind": it["kind"], "source": it["source"], "text": it["clean"]}
-                     for i, it in enumerate(items)]
-    user = json.dumps({"recent_events": recent_events, "items": payload_items}, ensure_ascii=False)
-    payload = {"model": MODEL, "max_tokens": MAX_OUT_TOKENS, "system": SYSTEM_PROMPT,
+def claude_request(api_key, system, user_text, max_tokens):
+    """קריאה אחת ל-API. מחזיר (טקסט, טוקני קלט, טוקני פלט, stop_reason). שגיאת API = חריגה."""
+    payload = {"model": MODEL, "max_tokens": max_tokens, "system": system,
                "thinking": {"type": "disabled"},   # סיכום לא צריך "חשיבה" – היא מחויבת כטוקני תשובה
-               "messages": [{"role": "user", "content": user}]}
+               "messages": [{"role": "user", "content": user_text}]}
     data = None
     for _ in range(2):
         req = urllib.request.Request("https://api.anthropic.com/v1/messages",
@@ -259,8 +389,15 @@ def call_claude(api_key, items, recent_events):
     print(f"סוגי תוכן בתשובה (תווים): {kinds}")
     text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
     usage = data.get("usage", {})
-    tin, tout = usage.get("input_tokens", 0), usage.get("output_tokens", 0)
-    stop = data.get("stop_reason")
+    return text, usage.get("input_tokens", 0), usage.get("output_tokens", 0), data.get("stop_reason")
+
+
+def call_claude(api_key, items, recent_events, topic_codes):
+    payload_items = [{"id": i + 1, "kind": it["kind"], "source": it["source"], "text": it["clean"]}
+                     for i, it in enumerate(items)]
+    user = json.dumps({"topics": topic_codes, "recent_events": recent_events, "items": payload_items},
+                      ensure_ascii=False, separators=(",", ":"))
+    text, tin, tout, stop = claude_request(api_key, SYSTEM_PROMPT, user, MAX_OUT_TOKENS)
     try:
         return extract_json(text, stop), tin, tout, stop
     except ValueError:
@@ -278,6 +415,27 @@ def extract_json(text, stop_reason=None):
     except json.JSONDecodeError as e:
         print(f"JSON שבור (stop={stop_reason}): {text[:300]!r}")
         raise ValueError(f"bad JSON: {e} (stop={stop_reason})")
+
+
+def account(u, stamp, tin, tout, stop):
+    """כל קריאה – גם כושלת – נספרת בתקרות. מחזיר את העלות."""
+    cost = tin / 1e6 * PRICE_IN + tout / 1e6 * PRICE_OUT
+    u["day_calls"] = u.get("day_calls", 0) + 1
+    u["week_calls"] = u.get("week_calls", 0) + 1
+    u["day_cost"] = u.get("day_cost", 0.0) + cost
+    u["week_cost"] = u.get("week_cost", 0.0) + cost
+    u["total_cost"] = u.get("total_cost", 0.0) + cost
+    win_add(u, stamp, calls=1, cost=cost, out=tout, truncs=1 if stop == "max_tokens" else 0)
+    return cost
+
+
+def caps_reached(u):
+    return u.get("day_calls", 0) >= MAX_CALLS_PER_DAY or u.get("day_cost", 0.0) >= MAX_COST_PER_DAY
+
+
+def is_paused(u, now):
+    p = parse_date(u.get("paused_until", ""))
+    return bool(p and now < p)
 
 
 # ------------------------------------------------------------ טלגרם
@@ -308,12 +466,12 @@ def fmt_event(ev, items, src_names, now):
     hhmm = now.astimezone(IL).strftime("%H:%M")
     srcs, links = [], []
     for iid in ev.get("item_ids", []):
-        if 1 <= iid <= len(items):
+        if isinstance(iid, int) and 1 <= iid <= len(items):
             it = items[iid - 1]
             name = src_names.get(it["source"], it["source"])
             if name not in srcs:
                 srcs.append(name)
-            if it["link"] and len(links) < 2 and (it["kind"] == "media" or not links):
+            if safe_link(it["link"]) and len(links) < 2 and (it["kind"] == "media" or not links):
                 links.append(it["link"])
     st = ev.get("status", "new")
     if st == "confirmed":
@@ -328,8 +486,8 @@ def fmt_event(ev, items, src_names, now):
         head = "🔴 " + head
     n = len(srcs)
     head += f" · {n} {'מקור' if n == 1 else 'מקורות'} · {hhmm}"
-    out = (f"{head}\n<b>{html.escape(ev.get('headline', ''))}</b>\n"
-           f"{html.escape(ev.get('summary', ''))}")
+    out = (f"{head}\n<b>{html.escape(str(ev.get('headline', '')))}</b>\n"
+           f"{html.escape(str(ev.get('summary', '')))}")
     if srcs:
         out += f"\n<i>{html.escape(', '.join(srcs))}</i>"
     for i, ln in enumerate(links):
@@ -337,7 +495,7 @@ def fmt_event(ev, items, src_names, now):
     return out
 
 
-# ------------------------------------------------------------ מצב ודוחות
+# ------------------------------------------------------------ מצב, נתונים לאתר ודוחות
 
 def load_state():
     if not os.path.exists(STATE_FILE):
@@ -357,9 +515,68 @@ def save_state(st):
         json.dump(st, f, ensure_ascii=False, separators=(",", ":"))
 
 
+def _write_json(name, obj):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    path = os.path.join(DATA_DIR, name)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(obj, f, ensure_ascii=False, separators=(",", ":"))
+    os.replace(tmp, path)
+
+
+def load_events():
+    try:
+        with open(os.path.join(DATA_DIR, "events.json"), encoding="utf-8") as f:
+            evs = json.load(f).get("events", [])
+        return [e for e in evs if isinstance(e, dict) and e.get("t")]
+    except FileNotFoundError:
+        return []
+    except Exception as e:
+        print(f"events.json לא קריא ({type(e).__name__}) – מתחיל רשימה חדשה")
+        return []
+
+
+def prune_events(evs, now):
+    cutoff = now - timedelta(days=EVENTS_KEEP_DAYS)
+    keep = [e for e in evs if (parse_date(e["t"]) or now) >= cutoff]
+    return sorted(keep, key=lambda e: e["t"], reverse=True)
+
+
 def bump(st, source, key, n=1):
     s = st.setdefault("stats", {}).setdefault(source, {"in": 0, "junk": 0, "dup": 0, "used": 0})
     s[key] = s.get(key, 0) + n
+
+
+def month_estimate(u, now):
+    hist = [v for v in u.get("cost_hist", {}).values() if isinstance(v, (int, float))]
+    if hist:
+        return sum(hist) / len(hist) * 30
+    il = now.astimezone(IL)
+    frac = max((il.hour * 60 + il.minute) / 1440, 1 / 24)
+    return u.get("day_cost", 0.0) / frac * 30
+
+
+def write_status(st, settings, settings_ok, sources, now):
+    u = st.get("usage", {})
+    names = {s["id"]: s["name"] for s in sources}
+    _write_json("status.json", {
+        "version": VERSION,
+        "last_run": now.isoformat(timespec="seconds"),
+        "day_cost": round(u.get("day_cost", 0.0), 4),
+        "day_calls": u.get("day_calls", 0),
+        "cap_cost": MAX_COST_PER_DAY,
+        "cap_calls": MAX_CALLS_PER_DAY,
+        "month_estimate": round(month_estimate(u, now), 3),
+        "paused_until": u.get("paused_until") if is_paused(u, now) else None,
+        "failed_sources": [names.get(s, s) for s in st.get("last_failed", [])],
+        "settings_ok": settings_ok,
+        "settings": settings,
+        "topics": TOPICS,
+        "source_countries": sorted({s["country"] for s in sources}),
+        "event_countries": sorted(set(COUNTRY_NAMES.values())),
+        "sources": [{"id": s["id"], "name": s["name"], "kind": s["kind"], "country": s["country"],
+                     "topics": s["topics"], "active": source_active(s, settings)} for s in sources],
+    })
 
 
 def weekly_report(st, src_names):
@@ -377,7 +594,7 @@ def weekly_report(st, src_names):
         rows.append((ratio, f"{html.escape(src_names.get(src, src))}: {tot} / {s.get('junk', 0)} / "
                             f"{s.get('dup', 0)} / {used} ({ratio:.0%}){flag}"))
     lines += [r for _, r in sorted(rows)]
-    lines.append("\nמקור עם ⚠️ מבזבז טוקנים בלי לתרום – כדאי להוריד אותו.")
+    lines.append("\nמקור עם ⚠️ מבזבז טוקנים בלי לתרום – אפשר לכבות אותו בהגדרות באתר.")
     return "\n".join(lines)
 
 
@@ -434,11 +651,123 @@ def health_report(u, now):
     cost = w.get("cost", 0.0)
     u["w24"] = {"start": now.isoformat()}
     return (f"🩺 <b>דוח בריאות יומי</b> · גרסה {VERSION}\n"
-            f"ריצות: {w.get('runs', 0)} · סיכומי AI: {calls} · הודעות שנשלחו: {w.get('sent', 0)}\n"
+            f"ריצות: {w.get('runs', 0)} · קריאות AI: {calls} · התראות דחופות שנשלחו: {w.get('sent', 0)}\n"
             f"עלות 24 שעות: ${cost:.3f} (≈ ${cost * 30:.2f} לחודש) · ממוצע תשובה: {avg_out:.0f} טוקנים\n"
             f"כישלונות: {w.get('fails', 0)} · תשובות שנחתכו: {w.get('truncs', 0)}\n"
             f"עלות מצטברת שנמדדה: ${u.get('total_cost', 0.0):.2f}\n"
             f"<i>לא הגיע דוח כזה יום אחד? הבוט לא רץ.</i>")
+
+
+# ------------------------------------------------------------ סיכום יומי
+
+def daily_slot(now):
+    """מחזיר את שעת החלון הפתוח עכשיו (8/13/19) או None מחוץ לחלונות."""
+    h = now.astimezone(IL).hour
+    for s in DAILY_SLOTS:
+        if s <= h < s + DAILY_WINDOW_H:
+            return s
+    return None
+
+
+def event_allowed(ev, settings):
+    """האם אירוע שמור עדיין מתאים להגדרות (לסיכום היומי)."""
+    tops = active_topics(settings)
+    if len(tops) < len(TOPICS) and ev.get("topic") not in tops:
+        return False
+    ec = settings["event_countries"]
+    return not ec or ev.get("ec") in ec
+
+
+def maybe_daily(st, events, settings, api_key, now):
+    """daily.json – פעם אחת בכל חלון (8/13/19 שעון ישראל), קריאת AI אחת, נספרת בתקרות."""
+    u = st["usage"]
+    slot = daily_slot(now)
+    if slot is None:
+        return False
+    il = now.astimezone(IL)
+    today = il.strftime("%Y-%m-%d")
+    key = f"{today}@{slot}"
+    if u.get("daily_slot") == key:
+        return False
+    if not settings["ai_enabled"] or not api_key:
+        print("סיכום יומי: AI כבוי – מדלג")
+        return False
+    if caps_reached(u) or is_paused(u, now):
+        print("סיכום יומי: תקרה/השהיה – מדלג")
+        return False
+    todays = [e for e in events if (parse_date(e["t"]) or now).astimezone(IL).strftime("%Y-%m-%d") == today
+              and event_allowed(e, settings)]
+    base = {"date": today, "slot": f"{slot:02d}:00", "generated": now.isoformat(timespec="seconds"),
+            "count": len(todays)}
+    u["daily_slot"] = key        # פעם אחת בכל חלון – גם אם הקריאה תיכשל (הגנת עלות)
+    if not todays:
+        _write_json("daily.json", dict(base, summary="", top=[]))
+        print("סיכום יומי: אין אירועים היום – נשמר מצב ריק בלי AI")
+        return True
+    pick = sorted(todays, key=lambda e: e["t"], reverse=True)          # החדשים קודם...
+    pick = sorted(pick, key=lambda e: -importance_of({"importance": e.get("imp")}))[:DAILY_MAX_EVENTS]  # ...והחשובים בראש
+    payload = [{"i": i + 1, "h": e.get("h", ""), "s": e.get("s", ""), "imp": e.get("imp", 1),
+                "v": "n" if e.get("v") == "rumor" else "y"} for i, e in enumerate(pick)]
+    stamp = now.isoformat()
+    try:
+        text, tin, tout, stop = claude_request(api_key, DAILY_PROMPT,
+                                               json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                                               DAILY_MAX_TOKENS)
+    except Exception as e:
+        win_add(u, stamp, fails=1)
+        print(f"סיכום יומי נכשל: {e}")
+        return False
+    cost = account(u, stamp, tin, tout, stop)
+    print(f"סיכום יומי: {tin} in / {tout} out = ${cost:.4f} (stop={stop}, {len(pick)} אירועים)")
+    try:
+        res = extract_json(text, stop)
+        summary = res.get("s")
+        if not isinstance(summary, str) or not summary.strip():
+            raise ValueError("no summary")
+    except (ValueError, AttributeError) as e:
+        win_add(u, stamp, fails=1)
+        print(f"סיכום יומי: תשובה לא תקינה ({e})")
+        return False
+    top = []
+    for i in res.get("top", []) if isinstance(res.get("top"), list) else []:
+        if isinstance(i, int) and 1 <= i <= len(pick) and pick[i - 1] not in top:
+            top.append(pick[i - 1])
+    if not top:
+        top = pick[:DAILY_TOP]
+    _write_json("daily.json", dict(base, summary=summary.strip(), top=top[:DAILY_TOP]))
+    return True
+
+
+# ------------------------------------------------------------ אירועים
+
+def build_record(ev, batch, src_by_id, stamp):
+    """אירוע מה-AI → רשומה לאתר. בלי AI נוסף – רק מה שכבר נוצר."""
+    srcs, countries = [], []
+    for iid in ev.get("item_ids", []) or []:
+        if isinstance(iid, int) and 1 <= iid <= len(batch):
+            it = batch[iid - 1]
+            s = src_by_id.get(it["source"], {})
+            entry = {"n": s.get("name", it["source"]), "k": it["kind"], "u": safe_link(it.get("link"))}
+            if entry not in srcs and len(srcs) < MAX_LINKS_PER_EVENT:
+                srcs.append(entry)
+            c = s.get("country")
+            if c and c not in countries:
+                countries.append(c)
+    status = ev.get("status") if ev.get("status") in ("new", "update", "confirmed") else "new"
+    verify = "confirmed" if status == "confirmed" else ("verified" if ev.get("verified") else "rumor")
+    return {"ref": hashlib.md5((str(ev.get("headline", "")) + stamp).encode()).hexdigest()[:6],
+            "t": stamp, "h": str(ev.get("headline", "")), "s": str(ev.get("summary", "")),
+            "topic": TOPIC_CODES.get(ev.get("tp"), OTHER_TOPIC), "ec": country_name(ev.get("ec")),
+            "sc": countries, "v": verify, "imp": ev["importance"], "st": status,
+            "of": ev.get("ref") if status != "new" and isinstance(ev.get("ref"), str) else None,
+            "src": srcs}
+
+
+def importance_of(ev):
+    try:
+        return min(max(int(ev.get("importance") or 1), 1), 3)
+    except (TypeError, ValueError):
+        return 1
 
 
 # ------------------------------------------------------------ ריצה
@@ -452,19 +781,37 @@ def main():
         sys.exit(1)
 
     with open(SOURCES_FILE, encoding="utf-8") as f:
-        sources = json.load(f)
-    src_names = {s["name"]: s["name"] for s in sources.get("media", [])}
-    src_names.update(sources.get("telegram_names", {}))
+        sources = normalize_sources(json.load(f))
+    settings, settings_ok = load_settings()
+    print(f"הגדרות: טלגרם={'פעיל' if settings['telegram_enabled'] else 'כבוי'}, "
+          f"AI={'פעיל' if settings['ai_enabled'] else 'כבוי'}, נושאים={active_topics(settings)}")
 
     st = load_state()
     first_run = st is None
     st = st or {}
     st.setdefault("seen", {})
     now = datetime.now(timezone.utc)
+    events = prune_events(load_events(), now)
+    try:
+        run(st, first_run, settings, sources, events, token, chat, api_key, now)
+    finally:   # שומרים תמיד – כדי שכל קריאת AI שבוצעה תיספר בתקרה גם אם משהו קרס
+        save_state(st)
+        _write_json("events.json", {"events": events})
+        write_status(st, settings, settings_ok, sources, now)
+
+
+def run(st, first_run, settings, sources, events, token, chat, api_key, now):
+    src_names = {s["id"]: s["name"] for s in sources}
+    src_by_id = {s["id"]: s for s in sources}
     today = now.astimezone(IL).strftime("%Y-%m-%d")
     week = now.astimezone(IL).strftime("%G-W%V")
     u = st.setdefault("usage", {})
     if u.get("day") != today:
+        if u.get("day"):
+            hist = u.setdefault("cost_hist", {})
+            hist[u["day"]] = round(u.get("day_cost", 0.0), 5)
+            for d in sorted(hist)[:-7]:
+                del hist[d]
         u.update(day=today, day_calls=0, day_cost=0.0, cap_notified=False)
     if u.get("week") != week:
         if u.get("week") and st.get("stats"):
@@ -472,7 +819,8 @@ def main():
             st["stats"] = {}
         u.update(week=week, week_cost=0.0, week_calls=0)
 
-    win_add(u, stamp_now := now.isoformat(), runs=1)
+    stamp = now.isoformat()
+    win_add(u, stamp, runs=1)
     if not first_run:
         issues = qa_check(u, now, src_names)
         if issues:
@@ -484,37 +832,45 @@ def main():
             else:
                 u["w24"] = {"start": now.isoformat(), "runs": 1}
             u["health_day"] = today
+        if u.get("version") != VERSION:
+            tg_send(token, chat,
+                    f"🟢 <b>גרסה {VERSION} פעילה</b>\n"
+                    f"מעכשיו כל הידיעות באתר, וכאן בטלגרם רק אירועים דחופים 🔴 והתראות מערכת.\n"
+                    f"סיכום יומי באתר ב-8:00, 13:00 ו-19:00.\n{SITE_URL}")
+    u["version"] = VERSION
 
+    if not first_run:
+        maybe_daily(st, events, settings, api_key, now)
+
+    active = [s for s in sources if source_active(s, settings)]
+    ai_on = settings["ai_enabled"] and bool(api_key) and bool(active_topics(settings))
     last_ai = parse_date(u.get("last_ai", ""))
-    if not first_run and api_key and last_ai and now - last_ai < timedelta(minutes=MIN_AI_INTERVAL_MIN):
+    if not first_run and ai_on and last_ai and now - last_ai < timedelta(minutes=MIN_AI_INTERVAL_MIN):
         print(f"סיכום אחרון לפני פחות מ-{MIN_AI_INTERVAL_MIN} דק' – מחכה לריצה הבאה")
-        save_state(st)
         return
 
-    items, failed = collect(sources)
+    print(f"מקורות פעילים: {len(active)}/{len(sources)}")
+    items, failed = collect(active)
+    st["last_failed"] = failed
     if failed:
-        win_add(u, now.isoformat(), src_fail=failed)
+        win_add(u, stamp, src_fail=failed)
     new, ids = [], set()
     for it in items:
         if it["id"] in st["seen"] or it["id"] in ids:
             continue
         ids.add(it["id"])
         new.append(it)
-    stamp = now.isoformat()
     for it in new:
         st["seen"][it["id"]] = stamp
 
     if first_run:
         local_filter(new, st)  # בונה מאגר כפילויות מהקיים, בלי לשלוח
-        msg = (f"🟢 <b>גרסה {VERSION} פעילה</b> – סיכום AI\n"
-               f"מעכשיו כל אירוע מגיע פעם אחת, מסוכם בעברית, עם כל המקורות שדיווחו.\n\n"
-               f"✅ מאומת = כלי תקשורת דיווח\n⚠️ שמועה = רק ערוצי טלגרם\n🔁 אושר = שמועה שאומתה\n"
-               f"🔴 = דחוף\n\nמקורות: {len(sources.get('media', [])) + len(sources.get('telegram', []))}")
+        msg = (f"🟢 <b>גרסה {VERSION} פעילה</b>\n"
+               f"כל הידיעות באתר, כאן רק דחופים 🔴 והתראות מערכת.\n{SITE_URL}\n\n"
+               f"מקורות פעילים: {len(active)}")
         if failed:
-            msg += f"\nנכשלו: {html.escape(', '.join(failed))}"
-        msg += "\n📊 דוח עלות ורעש לכל מקור – פעם בשבוע."
+            msg += f"\nנכשלו: {html.escape(', '.join(src_names.get(f, f) for f in failed))}"
         tg_send(token, chat, msg)
-        save_state(st)
         return
 
     fresh = [i for i in new if i["when"] is None or now - i["when"] <= MAX_AGE]
@@ -529,23 +885,24 @@ def main():
           f"(זבל {len(junk)}, כפול {len(dups)})")
 
     if not good:
-        save_state(st)
+        return
+    if not settings["ai_enabled"]:
+        print("AI כבוי בהגדרות – הידיעות סומנו כנראו, בלי סיכום")
         return
     if not api_key:
         print("אין ANTHROPIC_API_KEY – מדלג על סיכום")
-        save_state(st)
         return
-    if u.get("day_calls", 0) >= MAX_CALLS_PER_DAY or u.get("day_cost", 0.0) >= MAX_COST_PER_DAY:
+    if not active_topics(settings):
+        print("כל הנושאים כבויים – מדלג על סיכום")
+        return
+    if caps_reached(u):
         if not u.get("cap_notified"):
             tg_send(token, chat, f"⏸️ הגעתי לתקרה היומית (${u.get('day_cost', 0):.2f}, "
                                  f"{u.get('day_calls', 0)} קריאות). ממשיך מחר.")
             u["cap_notified"] = True
-        save_state(st)
         return
-    paused = parse_date(u.get("paused_until", ""))
-    if paused and now < paused:
-        print(f"מושהה עד {paused}")
-        save_state(st)
+    if is_paused(u, now):
+        print(f"מושהה עד {u.get('paused_until')}")
         return
 
     good.sort(key=lambda i: i["when"] or now)
@@ -554,27 +911,25 @@ def main():
     recent = [e for e in st.get("events", []) if parse_date(e["t"]) and parse_date(e["t"]) >= cutoff]
     recent = recent[-RECENT_EVENTS_KEEP:]
     recent_for_ai = [{"ref": e["ref"], "headline": e["h"], "verified": e["v"]} for e in recent]
+    topic_codes = [CODE_OF_TOPIC[t] for t in active_topics(settings)]
 
     result, err = None, None
     for attempt in range(2):
         try:
-            result, tin, tout, stop = call_claude(api_key, batch, recent_for_ai)
+            result, tin, tout, stop = call_claude(api_key, batch, recent_for_ai, topic_codes)
         except Exception as e:          # שגיאת API/רשת – לא מנסים שוב
             err = e
             break
-        cost = tin / 1e6 * PRICE_IN + tout / 1e6 * PRICE_OUT
-        u["day_calls"] = u.get("day_calls", 0) + 1
-        u["week_calls"] = u.get("week_calls", 0) + 1
-        u["day_cost"] = u.get("day_cost", 0.0) + cost
-        u["week_cost"] = u.get("week_cost", 0.0) + cost
-        u["total_cost"] = u.get("total_cost", 0.0) + cost
-        win_add(u, stamp, calls=1, cost=cost, out=tout, truncs=1 if stop == "max_tokens" else 0)
+        cost = account(u, stamp, tin, tout, stop)
         print(f"AI ניסיון {attempt + 1}: {tin} in / {tout} out = ${cost:.4f} (stop={stop}, {len(batch)} ידיעות)")
-        if result is not None:
+        if isinstance(result, dict):
             break
+        result = None
         err = ValueError(f"תשובה לא תקינה (stop={stop})")
         if stop == "max_tokens" and len(batch) > 5:
             batch = batch[-(len(batch) // 2):]   # נחתך – מנסים עם חצי מהידיעות
+        if caps_reached(u):
+            break
     if result is None:
         u["fails"] = u.get("fails", 0) + 1
         win_add(u, stamp, fails=1)
@@ -587,35 +942,61 @@ def main():
                                  f"{html.escape(str(err)[:200])}{hint}")
         elif u.get("fails") == 1 and hint:
             tg_send(token, chat, f"⚠️ הסיכום נכשל: {html.escape(str(err)[:200])}{hint}")
-        save_state(st)
         return
     u["fails"] = 0
     u["last_ai"] = stamp
 
-    for iid in result.get("junk", []):
-        if isinstance(iid, int) and 1 <= iid <= len(batch):
-            bump(st, batch[iid - 1]["source"], "junk")
-    for iid in result.get("dup", []):
-        if isinstance(iid, int) and 1 <= iid <= len(batch):
-            bump(st, batch[iid - 1]["source"], "dup")
+    for key in ("junk", "dup"):
+        for iid in result.get(key, []) if isinstance(result.get(key), list) else []:
+            if isinstance(iid, int) and 1 <= iid <= len(batch):
+                bump(st, batch[iid - 1]["source"], key)
 
-    events = sorted(result.get("events", []), key=lambda e: -int(e.get("importance") or 1))
-    events = [e for e in events if int(e.get("importance") or 1) >= MIN_IMPORTANCE][:MAX_MSGS_PER_RUN]
+    tops = active_topics(settings)
+    all_topics = len(tops) == len(TOPICS)
+    raw_events = [e for e in result.get("events", []) if isinstance(e, dict)] \
+        if isinstance(result.get("events"), list) else []
+    kept, dropped = [], 0
+    for ev in raw_events:
+        ev["importance"] = importance_of(ev)
+        topic = TOPIC_CODES.get(ev.get("tp"))
+        if (topic is None and not all_topics) or (topic is not None and topic not in tops):
+            dropped += 1
+            continue
+        ec = settings["event_countries"]
+        if ec and country_name(ev.get("ec")) not in ec:
+            dropped += 1
+            continue
+        kept.append(ev)
+    if dropped:
+        print(f"{dropped} אירועים סוננו לפי נושא/מדינה")
+
+    by_ref = {e.get("ref"): e for e in events}
     stored = st.setdefault("events", [])
-    sent_ok = 0
-    for ev in events:
-        for iid in ev.get("item_ids", []):
+    urgent = []
+    for ev in kept:
+        for iid in ev.get("item_ids", []) or []:
             if isinstance(iid, int) and 1 <= iid <= len(batch):
                 bump(st, batch[iid - 1]["source"], "used")
-        if tg_send(token, chat, fmt_event(ev, batch, src_names, now)):
-            sent_ok += 1
-        ref = hashlib.md5((ev.get("headline", "") + stamp).encode()).hexdigest()[:6]
-        stored.append({"ref": ref, "h": ev.get("headline", ""), "v": bool(ev.get("verified")), "t": stamp})
-        time.sleep(3.2)
+        rec = build_record(ev, batch, src_by_id, stamp)
+        if rec["st"] == "confirmed" and rec["of"] in by_ref:
+            by_ref[rec["of"]]["v"] = "confirmed"
+        events.insert(0, rec)
+        if ev["importance"] >= MIN_IMPORTANCE:
+            stored.append({"ref": rec["ref"], "h": rec["h"], "v": rec["v"] != "rumor", "t": stamp})
+        if ev["importance"] >= TG_MIN_IMPORTANCE:
+            urgent.append(ev)
     st["events"] = stored[-60:]
-    save_state(st)
+
+    sent_ok = 0
+    if settings["telegram_enabled"]:
+        for ev in urgent[:MAX_MSGS_PER_RUN]:
+            if tg_send(token, chat, fmt_event(ev, batch, src_names, now)):
+                sent_ok += 1
+            time.sleep(3.2)
+    elif urgent:
+        print(f"טלגרם כבוי בהגדרות – {len(urgent)} דחופים לא נשלחו (נשמרו באתר)")
     win_add(u, stamp, sent=sent_ok)
-    print(f"נשלחו {sent_ok}/{len(events)} אירועים")
+    print(f"נשמרו {len(kept)} אירועים לאתר, נשלחו לטלגרם {sent_ok}/{len(urgent)} דחופים")
 
 
 if __name__ == "__main__":

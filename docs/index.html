@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Yhyt3nQGtljuRUQN692hjgbkDLCgSV+sEi4Hn/t9FHE='; style-src 'unsafe-inline'; connect-src 'self' https://api.github.com; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>החדשות של תומר</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--text:#1a1d21;--muted:#5d6670;--line:#e2e6ea;--accent:#1f6feb;--red:#d1242f;--green:#1a7f37;--amber:#9a6700;--chip:#eef1f4;}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1216;--card:#181c22;--text:#e8eaed;--muted:#9aa4ae;--line:#2a3038;--accent:#58a6ff;--red:#ff6b6b;--green:#3fb950;--amber:#d29922;--chip:#232931;}}
+:root[data-theme="dark"]{--bg:#0f1216;--card:#181c22;--text:#e8eaed;--muted:#9aa4ae;--line:#2a3038;--accent:#58a6ff;--red:#ff6b6b;--green:#3fb950;--amber:#d29922;--chip:#232931;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Arial,sans-serif;}
+header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px 4px;max-width:760px;margin:0 auto}
+h1{font-size:20px;margin:0}
+.sub{color:var(--muted);font-size:13px;padding:0 16px;max-width:760px;margin:0 auto}
+nav{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);display:flex;gap:4px;padding:8px 16px;max-width:760px;margin:0 auto}
+nav button{flex:1;border:0;background:transparent;color:var(--muted);font:inherit;font-weight:600;padding:8px;border-radius:8px;cursor:pointer}
+nav button[aria-selected="true"]{background:var(--card);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+main{max-width:760px;margin:0 auto;padding:12px 16px 48px}
+section[hidden]{display:none}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:0 0 12px}
+.big h3{font-size:19px}
+h2{font-size:17px;margin:18px 0 8px}
+h3{font-size:16px;margin:4px 0 4px;line-height:1.35}
+p{margin:4px 0}
+.muted{color:var(--muted);font-size:13px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px}
+.chip{background:var(--chip);border-radius:999px;padding:1px 9px;font-size:12px;color:var(--muted)}
+.chip.red{color:var(--red);font-weight:700}.chip.ok{color:var(--green)}.chip.rum{color:var(--amber)}
+.srcs{margin-top:6px;font-size:13px;color:var(--muted)}
+.srcs a{color:var(--accent);text-decoration:none}
+.empty{text-align:center;color:var(--muted);padding:28px 12px}
+.daysep{font-size:13px;color:var(--muted);font-weight:700;margin:16px 0 6px}
+.filters{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.filters input,.filters select,.tok input{width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text)}
+.filters .full{grid-column:1/-1}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.row input{width:22px;height:22px;flex:none}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+.btn{font:inherit;font-weight:600;border:0;border-radius:10px;padding:10px 16px;background:var(--accent);color:#fff;cursor:pointer}
+.btn.sec{background:var(--chip);color:var(--text)}
+.btn:disabled{opacity:.5}
+.msg{margin-top:8px;font-size:14px}
+.msg.err{color:var(--red)}.msg.ok{color:var(--green)}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stat b{display:block;font-size:22px}
+.warn{color:var(--red)}
+.icon{border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:8px;padding:4px 10px;font:inherit;cursor:pointer}
+a{color:var(--accent)}
+.more{display:block;margin:8px auto}
+</style>
+</head>
+<body>
+<header><h1>החדשות של תומר</h1><button class="icon" id="theme" type="button" aria-label="מצב יום/לילה">🌓</button></header>
+<div class="sub" id="lastrun">טוען…</div>
+<nav role="tablist">
+  <button role="tab" data-tab="today" aria-selected="true">היום</button>
+  <button role="tab" data-tab="all" aria-selected="false">כל הידיעות</button>
+  <button role="tab" data-tab="settings" aria-selected="false">הגדרות</button>
+</nav>
+<main>
+<section id="tab-today">
+  <div class="card" id="daily"></div>
+  <div id="top"></div>
+</section>
+<section id="tab-all" hidden>
+  <div class="filters">
+    <input class="full" id="q" type="search" placeholder="חיפוש טקסט…">
+    <select id="f-topic" aria-label="נושא"></select>
+    <select id="f-verify" aria-label="אימות"></select>
+    <select id="f-sc" aria-label="מדינת מקור"></select>
+    <select id="f-ec" aria-label="מדינת אירוע"></select>
+  </div>
+  <div class="muted" id="count"></div>
+  <div id="list"></div>
+</section>
+<section id="tab-settings" hidden>
+  <div class="card" id="cost"></div>
+  <div id="form"></div>
+  <div class="card tok">
+    <h3>טוקן לשמירה</h3>
+    <p class="muted" id="tokstate"></p>
+    <details>
+      <summary>איך יוצרים טוקן (פעם אחת)</summary>
+      <ol class="muted">
+        <li>פתח: <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">https://github.com/settings/personal-access-tokens/new</a></li>
+        <li>Token name: tom-news-settings. Expiration: לבחירתך.</li>
+        <li>Repository access: Only select repositories ← tom-news.</li>
+        <li>Permissions ← Repository permissions ← Contents: Read and write. שום הרשאה אחרת.</li>
+        <li>Generate token, העתק והדבק כאן.</li>
+      </ol>
+      <p class="muted">הטוקן נשמר רק בדפדפן בטלפון הזה, לא נשלח לשום מקום חוץ מ-GitHub.</p>
+    </details>
+    <input id="tok" type="password" autocomplete="off" placeholder="github_pat_…">
+    <p><button class="btn sec" id="toksave" type="button">שמור טוקן בטלפון</button>
+       <button class="btn sec" id="tokdel" type="button">מחק טוקן</button></p>
+  </div>
+  <button class="btn" id="save" type="button">שמור הגדרות</button>
+  <div class="msg" id="savemsg" role="status"></div>
+</section>
+</main>
+<script>
+"use strict";
+var OWNER = "tomtom0506", REPO = "tom-news", BRANCH = "main", PATH = "settings.json";
+var API = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/contents/" + PATH;
+var TOPICS = ["ביטחון", "פוליטיקה", "כלכלה", "עולם", "טכנולוגיה"];
+var DEFAULTS = {telegram_enabled: true, ai_enabled: true, topics: {}, source_countries: [], event_countries: [], sources: {}};
+TOPICS.forEach(function (t) { DEFAULTS.topics[t] = true; });
+var VERIFY = {verified: "✅ מאומת", rumor: "⚠️ שמועה", confirmed: "🔁 אושר"};
+var S = {status: null, events: [], daily: null, settings: null, raw: null, shown: 150};
+
+function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { return null; } return null; }
+function $(id) { return document.getElementById(id); }
+function el(tag, attrs) {
+  var n = document.createElement(tag);
+  if (attrs) Object.keys(attrs).forEach(function (k) {
+    if (k === "text") n.textContent = attrs[k];
+    else if (k === "cls") n.className = attrs[k];
+    else n.setAttribute(k, attrs[k]);
+  });
+  for (var i = 2; i < arguments.length; i++) { var c = arguments[i]; if (c == null) continue; n.appendChild(typeof c === "string" ? document.createTextNode(c) : c); }
+  return n;
+}
+function clear(n) { while (n.firstChild) n.removeChild(n.firstChild); return n; }
+function safeUrl(u) { return typeof u === "string" && /^https?:\/\//i.test(u) ? u : ""; }
+function str(x) { return typeof x === "string" ? x : (x == null ? "" : String(x)); }
+function ilDate(d) { return d.toLocaleDateString("en-CA", {timeZone: "Asia/Jerusalem"}); }
+function ilTime(d) { return d.toLocaleTimeString("he-IL", {timeZone: "Asia/Jerusalem", hour: "2-digit", minute: "2-digit"}); }
+function dayLabel(key) {
+  var now = new Date(), today = ilDate(now), y = ilDate(new Date(now.getTime() - 864e5));
+  if (key === today) return "היום"; if (key === y) return "אתמול";
+  var p = key.split("-"); return p[2] + "." + p[1];
+}
+function getJSON(name) {
+  return fetch("data/" + name + "?t=" + Date.now(), {cache: "no-store"}).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); });
+}
+
+/* ---------- theme ---------- */
+function applyTheme(t) { if (t) document.documentElement.setAttribute("data-theme", t); else document.documentElement.removeAttribute("data-theme"); }
+applyTheme(store("theme"));
+$("theme").addEventListener("click", function () {
+  var cur = document.documentElement.getAttribute("data-theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  var next = cur === "dark" ? "light" : "dark"; applyTheme(next); store("theme", next);
+});
+
+/* ---------- tabs ---------- */
+function showTab(name) {
+  Array.prototype.forEach.call(document.querySelectorAll("nav button"), function (b) { b.setAttribute("aria-selected", b.getAttribute("data-tab") === name ? "true" : "false"); });
+  ["today", "all", "settings"].forEach(function (t) { $("tab-" + t).hidden = t !== name; });
+  store("tab", name);
+}
+Array.prototype.forEach.call(document.querySelectorAll("nav button"), function (b) { b.addEventListener("click", function () { showTab(b.getAttribute("data-tab")); }); });
+
+/* ---------- event card ---------- */
+function eventCard(e, big) {
+  var chips = el("div", {cls: "chips"});
+  if (e.imp === 3) chips.appendChild(el("span", {cls: "chip red", text: "🔴 דחוף"}));
+  var v = VERIFY[e.v] || VERIFY.rumor;
+  chips.appendChild(el("span", {cls: "chip " + (e.v === "rumor" ? "rum" : "ok"), text: v}));
+  if (e.st === "update") chips.appendChild(el("span", {cls: "chip", text: "עדכון"}));
+  if (e.topic) chips.appendChild(el("span", {cls: "chip", text: str(e.topic)}));
+  if (e.ec) chips.appendChild(el("span", {cls: "chip", text: "📍 " + str(e.ec)}));
+  var d = new Date(e.t), when = isNaN(d) ? "" : ilTime(d);
+  var srcs = el("div", {cls: "srcs"}, when ? when + " · " : "");
+  (Array.isArray(e.src) ? e.src : []).forEach(function (s, i) {
+    if (i) srcs.appendChild(document.createTextNode(", "));
+    var u = safeUrl(s && s.u);
+    srcs.appendChild(u ? el("a", {href: u, target: "_blank", rel: "noopener noreferrer", text: str(s.n)}) : el("span", {text: str(s && s.n)}));
+  });
+  return el("article", {cls: "card" + (big ? " big" : "")}, chips, el("h3", {text: str(e.h)}), el("p", {text: str(e.s)}), srcs);
+}
+
+/* ---------- today ---------- */
+function renderToday() {
+  var box = clear($("daily")), top = clear($("top")), d = S.daily;
+  box.appendChild(el("h2", {text: "סיכום היום"}));
+  if (!d || !d.date) {
+    box.appendChild(el("p", {cls: "empty", text: "עוד אין סיכום יומי. הוא נוצר ב-8:00, ב-13:00 וב-19:00."}));
+    return;
+  }
+  var stale = d.date !== ilDate(new Date());
+  box.appendChild(el("p", {cls: "muted", text: (stale ? "מ-" + dayLabel(d.date) + " · " : "") + "עודכן ב-" + str(d.slot) + " · " + (d.count || 0) + " אירועים"}));
+  if (d.summary) box.appendChild(el("p", {text: str(d.summary)}));
+  else box.appendChild(el("p", {cls: "empty", text: "לא היו אירועים לסכם בחלון הזה."}));
+  (Array.isArray(d.top) ? d.top : []).forEach(function (e) { top.appendChild(eventCard(e, true)); });
+}
+
+/* ---------- all ---------- */
+function fillSelect(id, label, values, map) {
+  var s = $(id), cur = s.value; clear(s);
+  s.appendChild(el("option", {value: "", text: label}));
+  values.forEach(function (v) { s.appendChild(el("option", {value: v, text: map ? map[v] : v})); });
+  if (values.indexOf(cur) >= 0) s.value = cur;
+}
+function uniq(arr) { var o = {}; arr.forEach(function (x) { if (x) o[x] = 1; }); return Object.keys(o).sort(); }
+function buildFilters() {
+  var ev = S.events;
+  fillSelect("f-topic", "כל הנושאים", uniq(ev.map(function (e) { return e.topic; })));
+  fillSelect("f-verify", "מאומת + שמועה", ["verified", "rumor", "confirmed"], VERIFY);
+  fillSelect("f-sc", "כל מדינות המקור", uniq([].concat.apply([], ev.map(function (e) { return Array.isArray(e.sc) ? e.sc : []; }))));
+  fillSelect("f-ec", "כל מדינות האירוע", uniq(ev.map(function (e) { return e.ec; })));
+}
+function filtered() {
+  var q = $("q").value.trim().toLowerCase(), tp = $("f-topic").value, vf = $("f-verify").value, sc = $("f-sc").value, ec = $("f-ec").value;
+  return S.events.filter(function (e) {
+    if (tp && e.topic !== tp) return false;
+    if (vf && e.v !== vf) return false;
+    if (sc && !(Array.isArray(e.sc) && e.sc.indexOf(sc) >= 0)) return false;
+    if (ec && e.ec !== ec) return false;
+    if (q) {
+      var hay = (str(e.h) + " " + str(e.s) + " " + (Array.isArray(e.src) ? e.src.map(function (s) { return s && s.n; }).join(" ") : "")).toLowerCase();
+      if (hay.indexOf(q) < 0) return false;
+    }
+    return true;
+  });
+}
+function renderAll() {
+  var list = clear($("list")), rows = filtered();
+  $("count").textContent = rows.length + " ידיעות";
+  if (!S.events.length) { list.appendChild(el("p", {cls: "empty", text: "עוד אין ידיעות. הן יופיעו כאן אחרי הסיכום הבא של הבוט."})); return; }
+  if (!rows.length) { list.appendChild(el("p", {cls: "empty", text: "אין ידיעות שמתאימות לסינון."})); return; }
+  var last = "";
+  rows.slice(0, S.shown).forEach(function (e) {
+    var d = new Date(e.t), key = isNaN(d) ? "" : ilDate(d);
+    if (key && key !== last) { list.appendChild(el("div", {cls: "daysep", text: dayLabel(key)})); last = key; }
+    list.appendChild(eventCard(e, false));
+  });
+  if (rows.length > S.shown) {
+    var b = el("button", {cls: "btn sec more", type: "button", text: "הצג עוד (" + (rows.length - S.shown) + ")"});
+    b.addEventListener("click", function () { S.shown += 150; renderAll(); });
+    list.appendChild(b);
+  }
+}
+["q", "f-topic", "f-verify", "f-sc", "f-ec"].forEach(function (id) {
+  $(id).addEventListener(id === "q" ? "input" : "change", function () { S.shown = 150; renderAll(); });
+});
+
+/* ---------- settings ---------- */
+function normSettings(raw) {
+  var s = JSON.parse(JSON.stringify(DEFAULTS));
+  if (!raw || typeof raw !== "object") return s;
+  ["telegram_enabled", "ai_enabled"].forEach(function (k) { if (typeof raw[k] === "boolean") s[k] = raw[k]; });
+  if (raw.topics && typeof raw.topics === "object") TOPICS.forEach(function (t) { if (typeof raw.topics[t] === "boolean") s.topics[t] = raw.topics[t]; });
+  ["source_countries", "event_countries"].forEach(function (k) { if (Array.isArray(raw[k])) s[k] = raw[k].filter(function (x) { return typeof x === "string"; }); });
+  if (raw.sources && typeof raw.sources === "object") Object.keys(raw.sources).forEach(function (k) { if (typeof raw.sources[k] === "boolean") s.sources[k] = raw.sources[k]; });
+  return s;
+}
+function money(x) { return "$" + (Number(x) || 0).toFixed(3); }
+function renderCost() {
+  var c = clear($("cost")), st = S.status;
+  if (!st) { c.appendChild(el("p", {cls: "empty", text: "אין עדיין נתוני סטטוס מהבוט."})); return; }
+  c.appendChild(el("div", {cls: "stats"},
+    el("div", {cls: "stat"}, el("span", {cls: "muted", text: "עלות היום"}), el("b", {text: money(st.day_cost)}), el("span", {cls: "muted", text: "תקרה " + money(st.cap_cost) + " · " + (st.day_calls || 0) + "/" + (st.cap_calls || 0) + " קריאות"})),
+    el("div", {cls: "stat"}, el("span", {cls: "muted", text: "הערכה חודשית"}), el("b", {text: money(st.month_estimate)}), el("span", {cls: "muted", text: "גרסה " + str(st.version)}))));
+  if (st.paused_until) c.appendChild(el("p", {cls: "warn", text: "הסיכום מושהה אחרי כישלונות."}));
+  if (st.settings_ok === false) c.appendChild(el("p", {cls: "warn", text: "settings.json לא תקין – הבוט משתמש בברירות מחדל. שמירה מכאן תתקן."}));
+  if (Array.isArray(st.failed_sources) && st.failed_sources.length) c.appendChild(el("p", {cls: "muted", text: "מקורות שנכשלו בריצה האחרונה: " + st.failed_sources.join(", ")}));
+}
+function check(label, checked, key, sub) {
+  var id = "c-" + key.replace(/[^\w-]/g, function (ch) { return "_" + ch.charCodeAt(0); });
+  var inp = el("input", {type: "checkbox", id: id, "data-key": key}); inp.checked = !!checked;
+  return el("label", {cls: "row", "for": id}, el("span", null, label, sub ? el("span", {cls: "muted", text: " · " + sub}) : null), inp);
+}
+function group(title, hint, rows, cls) {
+  var box = el("div", {cls: cls || ""}); rows.forEach(function (r) { box.appendChild(r); });
+  return el("div", {cls: "card"}, el("h3", {text: title}), hint ? el("p", {cls: "muted", text: hint}) : null, box);
+}
+function renderForm() {
+  var f = clear($("form")), s = S.settings, st = S.status || {};
+  f.appendChild(group("כללי", null, [
+    check("התראות דחופות לטלגרם", s.telegram_enabled, "telegram_enabled", "התראות מערכת נשלחות תמיד"),
+    check("סיכום AI", s.ai_enabled, "ai_enabled", "כבוי = אפס עלות, הבוט ממשיך לאסוף")]));
+  f.appendChild(group("נושאים", "נושא כבוי: מקורות שכל הנושאים שלהם כבויים לא נקראים.", TOPICS.map(function (t) { return check(t, s.topics[t], "topic:" + t); }), "grid2"));
+  var sc = uniq((st.source_countries || []).concat(s.source_countries));
+  f.appendChild(group("מדינות מקור", "בלי סימון = הכל.", sc.map(function (c) { return check(c, s.source_countries.indexOf(c) >= 0, "sc:" + c); }), "grid2"));
+  var ec = uniq((st.event_countries || []).concat(s.event_countries, S.events.map(function (e) { return e.ec; })));
+  f.appendChild(group("מדינות אירוע", "בלי סימון = הכל.", ec.map(function (c) { return check(c, s.event_countries.indexOf(c) >= 0, "ec:" + c); }), "grid2"));
+  var srcs = Array.isArray(st.sources) ? st.sources : [];
+  if (srcs.length) {
+    ["media", "telegram"].forEach(function (k) {
+      var rows = srcs.filter(function (x) { return x.kind === k; }).map(function (x) { return check(str(x.name), s.sources[x.id] !== false, "src:" + x.id, str(x.country)); });
+      f.appendChild(group(k === "media" ? "כלי תקשורת" : "ערוצי טלגרם", null, rows));
+    });
+  } else f.appendChild(el("p", {cls: "muted", text: "רשימת המקורות תופיע אחרי הריצה הראשונה של הבוט."}));
+}
+function readForm() {
+  var out = JSON.parse(JSON.stringify(S.raw && typeof S.raw === "object" ? S.raw : {}));
+  var s = normSettings(out); s.source_countries = []; s.event_countries = [];
+  Array.prototype.forEach.call($("form").querySelectorAll("input[type=checkbox]"), function (i) {
+    var k = i.getAttribute("data-key"), on = i.checked;
+    if (k === "telegram_enabled" || k === "ai_enabled") s[k] = on;
+    else if (k.indexOf("topic:") === 0) s.topics[k.slice(6)] = on;
+    else if (k.indexOf("sc:") === 0) { if (on) s.source_countries.push(k.slice(3)); }
+    else if (k.indexOf("ec:") === 0) { if (on) s.event_countries.push(k.slice(3)); }
+    else if (k.indexOf("src:") === 0) s.sources[k.slice(4)] = on;
+  });
+  Object.keys(s).forEach(function (k) { out[k] = s[k]; });
+  return out;
+}
+function b64encode(text) { var b = new TextEncoder().encode(text), s = ""; for (var i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s); }
+function b64decode(b64) { var s = atob(b64.replace(/\s/g, "")), b = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); return new TextDecoder().decode(b); }
+function token() { return store("gh_token") || ""; }
+function ghHeaders() { var h = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}; var t = token(); if (t) h.Authorization = "Bearer " + t; return h; }
+function ghGet() {
+  return fetch(API + "?ref=" + BRANCH + "&t=" + Date.now(), {headers: ghHeaders(), cache: "no-store"}).then(function (r) {
+    if (r.status === 404) return {sha: null, raw: null};
+    if (!r.ok) throw new Error("GET " + r.status);
+    return r.json().then(function (j) { var raw = null; try { raw = JSON.parse(b64decode(j.content || "")); } catch (e) { raw = null; } return {sha: j.sha, raw: raw}; });
+  });
+}
+function renderToken() { $("tokstate").textContent = token() ? "יש טוקן שמור בטלפון הזה." : "אין טוקן שמור – צריך טוקן כדי לשמור הגדרות."; }
+$("toksave").addEventListener("click", function () { var v = $("tok").value.trim(); if (!v) return; store("gh_token", v); $("tok").value = ""; renderToken(); });
+$("tokdel").addEventListener("click", function () { store("gh_token", null); renderToken(); });
+function setMsg(t, kind) { var m = $("savemsg"); m.textContent = t; m.className = "msg " + (kind || ""); }
+$("save").addEventListener("click", function () {
+  if (!token()) { setMsg("צריך קודם לשמור טוקן (למטה).", "err"); return; }
+  var body = readForm(), btn = $("save"); btn.disabled = true; setMsg("שומר…");
+  ghGet().then(function (cur) {
+    var payload = {message: "settings: update from site", content: b64encode(JSON.stringify(body, null, 2) + "\n"), branch: BRANCH};
+    if (cur.sha) payload.sha = cur.sha;
+    return fetch(API, {method: "PUT", headers: Object.assign({"Content-Type": "application/json"}, ghHeaders()), body: JSON.stringify(payload)});
+  }).then(function (r) {
+    if (r.ok) { S.raw = body; S.settings = normSettings(body); setMsg("נשמר. ייכנס לתוקף בריצה הבאה (עד ~20 דקות).", "ok"); return; }
+    var why = r.status === 401 ? "הטוקן לא תקין או שפג תוקפו." : r.status === 403 || r.status === 404 ? "לטוקן אין הרשאת Contents: Read and write ל-tom-news." : r.status === 409 || r.status === 422 ? "הקובץ השתנה בינתיים – נסה שוב." : "שגיאה " + r.status;
+    setMsg("לא נשמר: " + why, "err");
+  }).catch(function () { setMsg("לא נשמר: אין חיבור ל-GitHub.", "err"); }).then(function () { btn.disabled = false; });
+});
+
+/* ---------- load ---------- */
+function soft(p) { return p.then(function (x) { return x; }, function () { return null; }); }
+function load() {
+  return Promise.all([soft(getJSON("status.json")), soft(getJSON("events.json")), soft(getJSON("daily.json")), soft(ghGet())]).then(function (r) {
+    S.status = r[0]; S.events = (r[1] && Array.isArray(r[1].events) ? r[1].events : []).filter(function (e) { return e && typeof e === "object"; });
+    S.events.sort(function (a, b) { return str(b.t) < str(a.t) ? -1 : str(b.t) > str(a.t) ? 1 : 0; });
+    S.daily = r[2];
+    S.raw = r[3] && r[3].raw ? r[3].raw : (S.status && S.status.settings) || null;
+    S.settings = normSettings(S.raw);
+    var lr = S.status && new Date(S.status.last_run);
+    $("lastrun").textContent = lr && !isNaN(lr) ? "ריצה אחרונה: " + dayLabel(ilDate(lr)) + " " + ilTime(lr) : "אין עדיין נתונים מהבוט.";
+    renderToday(); buildFilters(); renderAll(); renderCost(); renderForm(); renderToken();
+  });
+}
+var t0 = store("tab"); if (t0 === "all" || t0 === "settings") showTab(t0);
+load();
+</script>
+</body>
+</html>

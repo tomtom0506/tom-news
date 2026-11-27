@@ -13,8 +13,11 @@
 8. **חלונות הרשאה** (Allow / Deny וכו'): לפני שהם מופיעים, להסביר בעברית מה מתבקש ולמה.
 9. **קבצי workflow** (`.github/workflows/`): ייתכן שאין לך הרשאה לדחוף אותם. אם צריך שינוי — להכין את התוכן המלא ולבקש מתומר להדביק אותו ידנית, עם קישור ישיר לעורך.
 
-## ארכיטקטורה (נכון ל-v2.3.1)
-- `news_bot.py` — כל הלוגיקה. `sources.json` — מקורות (media = RSS, telegram = ערוצים ציבוריים דרך t.me/s/). `state.json` — מצב (נראו, אירועים אחרונים, סטטיסטיקות, שימוש ועלות). `.github/workflows/news.yml` — הרצה + שמירת state עם pull --rebase וניסיונות חוזרים.
+## ארכיטקטורה (נכון ל-v3.0.0)
+- `news_bot.py` — כל הלוגיקה. `sources.json` — מקורות עם country ו-topics (media = RSS, telegram = ערוצים ציבוריים דרך t.me/s/). `settings.json` — מתגים שתומר משנה מהאתר. `state.json` — מצב. `docs/index.html` — האתר (GitHub Pages מ-/docs); `docs/data/*.json` — נתונים שהבוט כותב. `.github/workflows/news.yml` — הרצה + שמירת state ו-docs/data.
+- טלגרם: רק אירועים בחשיבות 3 + התראות מערכת. כל השאר באתר.
+- **האתר:** אסור innerHTML עם נתונים (תוכן טלגרם לא אמין + טוקן ב-localStorage). אחרי כל שינוי בסקריפט: `python3 tests/csp_hash.py`.
+- **בדיקות:** `python3 -m unittest discover -s tests` (mocks בלבד, רשת חסומה בבדיקות).
 - **הפעלה:** cron-job.org שולח workflow_dispatch כל 10 דקות (טוקן GitHub מוגבל ל-Actions בלבד, פג 7.2.2027). תזמון GitHub כל 30 דק' הוא גיבוי בלבד. הבוט מסכם לכל היותר פעם ב-20 דקות.
 - **סודות:** TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, ANTHROPIC_API_KEY (פג 7.2.2027).
 - **AI:** מודל `claude-haiku-5-5`, ‏$0.10/$0.50 למיליון טוקנים. **בפועל: ~2,400 טוקני תשובה לסיכום** (עברית יקרה בטוקנים), ~0.2 סנט לקריאה.

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-fn2ARjQmlkJidFOZ9oTj0Uc6xlHrjpS+nuLz348JyZg='; style-src 'unsafe-inline'; connect-src 'self' https://api.github.com; img-src 'self' data:; manifest-src 'self'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Ll3WxYguxkbVV7MScNUOrEXLUvW39NlbyiPArcDu1+k='; style-src 'unsafe-inline'; connect-src 'self' https://api.github.com; img-src 'self' data:; manifest-src 'self'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="icon" href="icons/favicon-32.png" type="image/png" sizes="32x32">
@@ -47,6 +47,7 @@ p{margin:4px 0}
 .empty{text-align:center;color:var(--muted);padding:28px 12px}
 .daysep{font-size:13px;color:var(--muted);font-weight:700;margin:16px 0 6px}
 .filters{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.tok label{display:block;margin-top:8px}
 .filters input,.filters select,.tok input{width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text)}
 .filters .full{grid-column:1/-1}
 .row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
@@ -102,9 +103,10 @@ footer .link{background:none;border:0;color:var(--muted);font:inherit;font-size:
 <section id="tab-settings" hidden>
   <div class="card" id="cost"></div>
   <div id="form"></div>
+  <form id="saveform" autocomplete="on">
   <div class="card tok">
     <h3>שמירה</h3>
-    <p class="muted">הדבק את הטוקן ולחץ "שמור הגדרות". הטוקן משמש רק לשמירה הזו ולא נשמר בטלפון.</p>
+    <p class="muted">לחץ על שדה הטוקן – האייפון יציע את הטוקן השמור (Face ID). בפעם הראשונה: הדבק, לחץ "שמור הגדרות" ואשר "שמור סיסמה". האתר עצמו לא שומר את הטוקן.</p>
     <details>
       <summary>איך יוצרים טוקן (פעם אחת)</summary>
       <ol class="muted">
@@ -115,16 +117,20 @@ footer .link{background:none;border:0;color:var(--muted);font:inherit;font-size:
         <li>Generate token. שמור אותו במנהל הסיסמאות של הטלפון, לא בפתקים.</li>
       </ol>
     </details>
-    <input id="tok" type="password" autocomplete="off" placeholder="github_pat_…">
+    <label class="muted" for="user">שם (למחזיק המפתחות)</label>
+    <input id="user" name="username" type="text" autocomplete="username" value="tom-news-settings" readonly>
+    <label class="muted" for="tok">טוקן</label>
+    <input id="tok" name="password" type="password" autocomplete="current-password" placeholder="github_pat_…">
   </div>
-  <button class="btn" id="save" type="button">שמור הגדרות</button>
+  <button class="btn" id="save" type="submit">שמור הגדרות</button>
   <div class="msg" id="savemsg" role="status"></div>
+  </form>
 </section>
 <footer class="muted" id="footer"><button class="link" id="vbtn" type="button"></button><div id="changelog" hidden></div></footer>
 </main>
 <script>
 "use strict";
-var SITE_VERSION = "3.2.0";
+var SITE_VERSION = "3.2.1";
 var REFRESH_MS = 5 * 60 * 1000;
 var OWNER = "tomtom0506", REPO = "tom-news", BRANCH = "main", PATH = "settings.json";
 var API = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/contents/" + PATH;
@@ -339,7 +345,9 @@ function ghGet(t) {
   });
 }
 function setMsg(t, kind) { var m = $("savemsg"); m.textContent = t; m.className = "msg " + (kind || ""); }
-$("save").addEventListener("click", function () {
+$("saveform").addEventListener("submit", function (ev) {
+  ev.preventDefault();   /* שמירה דרך ה-API בלבד; ה-submit קיים כדי שמחזיק המפתחות של האייפון יציע לשמור */
+  if ($("save").disabled) return;
   var tok = $("tok").value.trim();
   if (!tok) { setMsg("הדבק טוקן בשדה שמעל הכפתור.", "err"); return; }
   var body = readForm(), btn = $("save"); btn.disabled = true; setMsg("שומר…");

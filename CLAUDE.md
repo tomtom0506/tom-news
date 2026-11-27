@@ -16,7 +16,7 @@
 ## ארכיטקטורה (נכון ל-v3.1.0)
 - `news_bot.py` — כל הלוגיקה. `sources.json` — מקורות עם country ו-topics (media = RSS, telegram = ערוצים ציבוריים דרך t.me/s/). `settings.json` — מתגים שתומר משנה מהאתר. `state.json` — מצב. `docs/index.html` — האתר (GitHub Pages מ-/docs); `docs/data/*.json` — נתונים שהבוט כותב. `.github/workflows/news.yml` — הרצה + שמירת state ו-docs/data.
 - טלגרם: רק אירועים בחשיבות 3 + התראות מערכת. כל השאר באתר.
-- **האתר:** אסור innerHTML עם נתונים (תוכן טלגרם לא אמין). הטוקן לשמירת הגדרות לא נשמר בטלפון (החלטת תומר, v3.1) – רק בשדה, לשמירה אחת. כל גרסה: לעדכן גם `SITE_VERSION` ב-docs/index.html (מפעיל את פס "גרסה חדשה"). אחרי כל שינוי בסקריפט: `python3 tests/csp_hash.py`.
+- **האתר:** אסור innerHTML עם נתונים (תוכן טלגרם לא אמין). הטוקן לשמירת הגדרות לא נשמר באתר (החלטת תומר, v3.1) – רק בשדה, לשמירה אחת; מחזיק המפתחות של האייפון ממלא אותו (v3.2.1, form + autocomplete). כל גרסה: לעדכן גם `SITE_VERSION` ב-docs/index.html (מפעיל את פס "גרסה חדשה"). אחרי כל שינוי בסקריפט: `python3 tests/csp_hash.py`.
 - **בדיקות:** `python3 -m unittest discover -s tests` (mocks בלבד, רשת חסומה בבדיקות).
 - **הפעלה:** cron-job.org שולח workflow_dispatch כל 10 דקות (טוקן GitHub מוגבל ל-Actions בלבד, פג 7.2.2027). תזמון GitHub כל 30 דק' הוא גיבוי בלבד. הבוט מסכם לכל היותר פעם ב-20 דקות.
 - **סודות:** TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, ANTHROPIC_API_KEY (פג 7.2.2027).

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Yhyt3nQGtljuRUQN692hjgbkDLCgSV+sEi4Hn/t9FHE='; style-src 'unsafe-inline'; connect-src 'self' https://api.github.com; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-vhK2dEKQjGEdIKhJImQNJ4AinVHppFbLFOkgtbee0J4='; style-src 'unsafe-inline'; connect-src 'self' https://api.github.com; img-src 'self' data:; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>החדשות של תומר</title>
 <style>
@@ -52,10 +52,19 @@ p{margin:4px 0}
 .icon{border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:8px;padding:4px 10px;font:inherit;cursor:pointer}
 a{color:var(--accent)}
 .more{display:block;margin:8px auto}
+.update{position:sticky;top:0;z-index:6;display:flex;align-items:center;justify-content:space-between;gap:8px;max-width:760px;margin:0 auto;padding:8px 16px;background:var(--accent);color:#fff;font-weight:600}
+.update .btn{background:#fff;color:#000;padding:6px 14px}
+[hidden]{display:none !important}
+footer{text-align:center;margin-top:28px}
+footer .link{background:none;border:0;color:var(--muted);font:inherit;font-size:13px;text-decoration:underline;cursor:pointer}
+#changelog{text-align:right;margin-top:8px}
+#changelog ul{margin:2px 0 10px;padding-inline-start:20px}
+.spin{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
-<header><h1>החדשות של תומר</h1><button class="icon" id="theme" type="button" aria-label="מצב יום/לילה">🌓</button></header>
+<header><h1>החדשות של תומר</h1><span><button class="icon" id="refresh" type="button" aria-label="רענון">⟳</button> <button class="icon" id="theme" type="button" aria-label="מצב תצוגה">🌓</button></span></header>
+<div class="update" id="update" hidden><span id="updtext">גרסה חדשה זמינה</span> <button class="btn" id="updbtn" type="button">רענן</button></div>
 <div class="sub" id="lastrun">טוען…</div>
 <nav role="tablist">
   <button role="tab" data-tab="today" aria-selected="true">היום</button>
@@ -82,29 +91,29 @@ a{color:var(--accent)}
   <div class="card" id="cost"></div>
   <div id="form"></div>
   <div class="card tok">
-    <h3>טוקן לשמירה</h3>
-    <p class="muted" id="tokstate"></p>
+    <h3>שמירה</h3>
+    <p class="muted">הדבק את הטוקן ולחץ "שמור הגדרות". הטוקן משמש רק לשמירה הזו ולא נשמר בטלפון.</p>
     <details>
       <summary>איך יוצרים טוקן (פעם אחת)</summary>
       <ol class="muted">
         <li>פתח: <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer">https://github.com/settings/personal-access-tokens/new</a></li>
-        <li>Token name: tom-news-settings. Expiration: לבחירתך.</li>
+        <li>Token name: tom-news-settings. Expiration: Custom, עד שנה קדימה.</li>
         <li>Repository access: Only select repositories ← tom-news.</li>
         <li>Permissions ← Repository permissions ← Contents: Read and write. שום הרשאה אחרת.</li>
-        <li>Generate token, העתק והדבק כאן.</li>
+        <li>Generate token. שמור אותו במנהל הסיסמאות של הטלפון, לא בפתקים.</li>
       </ol>
-      <p class="muted">הטוקן נשמר רק בדפדפן בטלפון הזה, לא נשלח לשום מקום חוץ מ-GitHub.</p>
     </details>
     <input id="tok" type="password" autocomplete="off" placeholder="github_pat_…">
-    <p><button class="btn sec" id="toksave" type="button">שמור טוקן בטלפון</button>
-       <button class="btn sec" id="tokdel" type="button">מחק טוקן</button></p>
   </div>
   <button class="btn" id="save" type="button">שמור הגדרות</button>
   <div class="msg" id="savemsg" role="status"></div>
 </section>
+<footer class="muted" id="footer"><button class="link" id="vbtn" type="button"></button><div id="changelog" hidden></div></footer>
 </main>
 <script>
 "use strict";
+var SITE_VERSION = "3.1.0";
+var REFRESH_MS = 5 * 60 * 1000;
 var OWNER = "tomtom0506", REPO = "tom-news", BRANCH = "main", PATH = "settings.json";
 var API = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/contents/" + PATH;
 var TOPICS = ["ביטחון", "פוליטיקה", "כלכלה", "עולם", "טכנולוגיה"];
@@ -140,11 +149,16 @@ function getJSON(name) {
 }
 
 /* ---------- theme ---------- */
-function applyTheme(t) { if (t) document.documentElement.setAttribute("data-theme", t); else document.documentElement.removeAttribute("data-theme"); }
-applyTheme(store("theme"));
+var THEMES = {auto: ["🌓", "תצוגה: אוטומטי לפי הטלפון"], light: ["☀️", "תצוגה: יום"], dark: ["🌙", "תצוגה: לילה"]};
+function applyTheme(t) {
+  if (!THEMES[t]) t = "auto";
+  if (t === "auto") document.documentElement.removeAttribute("data-theme"); else document.documentElement.setAttribute("data-theme", t);
+  $("theme").textContent = THEMES[t][0]; $("theme").setAttribute("aria-label", THEMES[t][1]); $("theme").title = THEMES[t][1];
+  return t;
+}
+var theme = applyTheme(store("theme"));
 $("theme").addEventListener("click", function () {
-  var cur = document.documentElement.getAttribute("data-theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-  var next = cur === "dark" ? "light" : "dark"; applyTheme(next); store("theme", next);
+  theme = applyTheme(theme === "auto" ? "light" : theme === "light" ? "dark" : "auto"); store("theme", theme);
 });
 
 /* ---------- tabs ---------- */
@@ -303,49 +317,80 @@ function readForm() {
 }
 function b64encode(text) { var b = new TextEncoder().encode(text), s = ""; for (var i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s); }
 function b64decode(b64) { var s = atob(b64.replace(/\s/g, "")), b = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); return new TextDecoder().decode(b); }
-function token() { return store("gh_token") || ""; }
-function ghHeaders() { var h = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}; var t = token(); if (t) h.Authorization = "Bearer " + t; return h; }
-function ghGet() {
-  return fetch(API + "?ref=" + BRANCH + "&t=" + Date.now(), {headers: ghHeaders(), cache: "no-store"}).then(function (r) {
+store("gh_token", null);   /* v3.0 שמר טוקן בטלפון – מוחקים אותו. מ-3.1 הטוקן לא נשמר בכלל */
+function ghHeaders(t) { var h = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}; if (t) h.Authorization = "Bearer " + t; return h; }
+function ghGet(t) {
+  return fetch(API + "?ref=" + BRANCH + "&t=" + Date.now(), {headers: ghHeaders(t), cache: "no-store"}).then(function (r) {
     if (r.status === 404) return {sha: null, raw: null};
     if (!r.ok) throw new Error("GET " + r.status);
     return r.json().then(function (j) { var raw = null; try { raw = JSON.parse(b64decode(j.content || "")); } catch (e) { raw = null; } return {sha: j.sha, raw: raw}; });
   });
 }
-function renderToken() { $("tokstate").textContent = token() ? "יש טוקן שמור בטלפון הזה." : "אין טוקן שמור – צריך טוקן כדי לשמור הגדרות."; }
-$("toksave").addEventListener("click", function () { var v = $("tok").value.trim(); if (!v) return; store("gh_token", v); $("tok").value = ""; renderToken(); });
-$("tokdel").addEventListener("click", function () { store("gh_token", null); renderToken(); });
 function setMsg(t, kind) { var m = $("savemsg"); m.textContent = t; m.className = "msg " + (kind || ""); }
 $("save").addEventListener("click", function () {
-  if (!token()) { setMsg("צריך קודם לשמור טוקן (למטה).", "err"); return; }
+  var tok = $("tok").value.trim();
+  if (!tok) { setMsg("הדבק טוקן בשדה שמעל הכפתור.", "err"); return; }
   var body = readForm(), btn = $("save"); btn.disabled = true; setMsg("שומר…");
-  ghGet().then(function (cur) {
+  ghGet(tok).then(function (cur) {
     var payload = {message: "settings: update from site", content: b64encode(JSON.stringify(body, null, 2) + "\n"), branch: BRANCH};
     if (cur.sha) payload.sha = cur.sha;
-    return fetch(API, {method: "PUT", headers: Object.assign({"Content-Type": "application/json"}, ghHeaders()), body: JSON.stringify(payload)});
+    return fetch(API, {method: "PUT", headers: Object.assign({"Content-Type": "application/json"}, ghHeaders(tok)), body: JSON.stringify(payload)});
   }).then(function (r) {
-    if (r.ok) { S.raw = body; S.settings = normSettings(body); setMsg("נשמר. ייכנס לתוקף בריצה הבאה (עד ~20 דקות).", "ok"); return; }
+    if (r.ok) { $("tok").value = ""; S.raw = body; S.settings = normSettings(body); S.dirty = false; setMsg("נשמר. ייכנס לתוקף בריצה הבאה (עד ~20 דקות).", "ok"); return; }
     var why = r.status === 401 ? "הטוקן לא תקין או שפג תוקפו." : r.status === 403 || r.status === 404 ? "לטוקן אין הרשאת Contents: Read and write ל-tom-news." : r.status === 409 || r.status === 422 ? "הקובץ השתנה בינתיים – נסה שוב." : "שגיאה " + r.status;
     setMsg("לא נשמר: " + why, "err");
-  }).catch(function () { setMsg("לא נשמר: אין חיבור ל-GitHub.", "err"); }).then(function () { btn.disabled = false; });
+  }).catch(function () { setMsg("לא נשמר: אין חיבור ל-GitHub.", "err"); }).then(function () { btn.disabled = false; tok = ""; });
 });
 
 /* ---------- load ---------- */
 function soft(p) { return p.then(function (x) { return x; }, function () { return null; }); }
 function load() {
-  return Promise.all([soft(getJSON("status.json")), soft(getJSON("events.json")), soft(getJSON("daily.json")), soft(ghGet())]).then(function (r) {
-    S.status = r[0]; S.events = (r[1] && Array.isArray(r[1].events) ? r[1].events : []).filter(function (e) { return e && typeof e === "object"; });
+  $("refresh").classList.add("spin");
+  var first = !S.loaded;
+  return Promise.all([soft(getJSON("status.json")), soft(getJSON("events.json")), soft(getJSON("daily.json")), first ? soft(ghGet()) : null]).then(function (r) {
+    S.loaded = true;
+    if (r[0]) S.status = r[0];
+    if (r[1] || first) S.events = (r[1] && Array.isArray(r[1].events) ? r[1].events : []).filter(function (e) { return e && typeof e === "object"; });
     S.events.sort(function (a, b) { return str(b.t) < str(a.t) ? -1 : str(b.t) > str(a.t) ? 1 : 0; });
-    S.daily = r[2];
-    S.raw = r[3] && r[3].raw ? r[3].raw : (S.status && S.status.settings) || null;
-    S.settings = normSettings(S.raw);
+    if (r[2] || first) S.daily = r[2];
+    if (first) { S.raw = r[3] && r[3].raw ? r[3].raw : (S.status && S.status.settings) || null; S.settings = normSettings(S.raw); }
     var lr = S.status && new Date(S.status.last_run);
     $("lastrun").textContent = lr && !isNaN(lr) ? "ריצה אחרונה: " + dayLabel(ilDate(lr)) + " " + ilTime(lr) : "אין עדיין נתונים מהבוט.";
-    renderToday(); buildFilters(); renderAll(); renderCost(); renderForm(); renderToken();
+    renderToday(); buildFilters(); renderAll(); renderCost(); renderFooter();
+    if (!S.dirty) renderForm();   /* לא מוחקים שינויים שעוד לא נשמרו */
+  }).then(function () { $("refresh").classList.remove("spin"); }, function () { $("refresh").classList.remove("spin"); });
+}
+$("form").addEventListener("change", function () { S.dirty = true; });
+
+/* ---------- version, what's new, update ---------- */
+function renderFooter() {
+  var bv = S.status && S.status.version;
+  $("vbtn").textContent = "אתר " + SITE_VERSION + (bv ? " · בוט " + str(bv) : "") + " · מה חדש";
+  var box = clear($("changelog")), cl = S.status && Array.isArray(S.status.changelog) ? S.status.changelog : [];
+  if (!cl.length) box.appendChild(el("p", {text: "אין עדיין רשימת שינויים."}));
+  cl.forEach(function (c) {
+    var ul = el("ul");
+    (Array.isArray(c.items) ? c.items : []).forEach(function (i) { ul.appendChild(el("li", {text: str(i)})); });
+    box.appendChild(el("b", {text: "v" + str(c.v) + (c.date ? " · " + str(c.date) : "")}));
+    box.appendChild(ul);
   });
 }
+$("vbtn").addEventListener("click", function () { $("changelog").hidden = !$("changelog").hidden; });
+function checkVersion() {
+  return fetch("./?vcheck=" + Date.now(), {cache: "no-store"}).then(function (r) { return r.ok ? r.text() : ""; }).then(function (t) {
+    var m = /var SITE_VERSION = "([^"]+)"/.exec(t);
+    if (m && m[1] !== SITE_VERSION) { S.newVersion = m[1]; $("updtext").textContent = "גרסה חדשה זמינה (" + m[1] + ")"; $("update").hidden = false; }
+  }).catch(function () {});
+}
+$("updbtn").addEventListener("click", function () { location.replace(location.pathname + "?v=" + encodeURIComponent(S.newVersion || Date.now())); });
+function refreshAll() { load(); checkVersion(); }
+$("refresh").addEventListener("click", refreshAll);
+setInterval(function () { if (!document.hidden) refreshAll(); }, REFRESH_MS);
+document.addEventListener("visibilitychange", function () { if (!document.hidden && Date.now() - (S.lastVis || 0) > 60000) { S.lastVis = Date.now(); refreshAll(); } });
+
 var t0 = store("tab"); if (t0 === "all" || t0 === "settings") showTab(t0);
-load();
+S.lastVis = Date.now();
+refreshAll();
 </script>
 </body>
 </html>

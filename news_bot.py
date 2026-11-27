@@ -22,12 +22,14 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 
-VERSION = "3.0.0"
+VERSION = "3.1.0"
 IL = ZoneInfo("Asia/Jerusalem")
 BASE = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(BASE, "state.json")
 SOURCES_FILE = os.path.join(BASE, "sources.json")
 SETTINGS_FILE = os.path.join(BASE, "settings.json")
+CHANGELOG_FILE = os.path.join(BASE, "CHANGELOG.md")
+CHANGELOG_KEEP = 5                 # כמה גרסאות מוצגות ב"מה חדש" באתר
 DATA_DIR = os.path.join(BASE, "docs", "data")
 SITE_URL = "https://tomtom0506.github.io/tom-news/"
 
@@ -556,6 +558,25 @@ def month_estimate(u, now):
     return u.get("day_cost", 0.0) / frac * 30
 
 
+def read_changelog(path=None, keep=CHANGELOG_KEEP):
+    """CHANGELOG.md → [{v, date, items}] לגרסאות האחרונות (ל"מה חדש" באתר). בלי AI."""
+    try:
+        with open(path or CHANGELOG_FILE, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return []
+    out = []
+    for line in text.splitlines():
+        m = re.match(r"^##\s+v?([\w.]+)\s*(?:·\s*(.+))?$", line.strip())
+        if m:
+            if len(out) == keep:
+                break
+            out.append({"v": m.group(1), "date": (m.group(2) or "").strip(), "items": []})
+        elif out and line.startswith("- "):
+            out[-1]["items"].append(re.sub(r"\*\*|`", "", line[2:]).strip())
+    return out
+
+
 def write_status(st, settings, settings_ok, sources, now):
     u = st.get("usage", {})
     names = {s["id"]: s["name"] for s in sources}
@@ -570,6 +591,7 @@ def write_status(st, settings, settings_ok, sources, now):
         "paused_until": u.get("paused_until") if is_paused(u, now) else None,
         "failed_sources": [names.get(s, s) for s in st.get("last_failed", [])],
         "settings_ok": settings_ok,
+        "changelog": read_changelog(),
         "settings": settings,
         "topics": TOPICS,
         "source_countries": sorted({s["country"] for s in sources}),

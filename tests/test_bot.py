@@ -363,6 +363,17 @@ class TestSettingsFile(unittest.TestCase):
 
 
 class TestDataAndCost(unittest.TestCase):
+    def test_changelog_in_status(self):
+        b = Bot(self, NOON).run()
+        cl = b.data("status.json")["changelog"]
+        self.assertEqual(cl[0]["v"], nb.VERSION, "רשומת CHANGELOG לגרסה הנוכחית חסרה")
+        self.assertTrue(cl[0]["date"] and cl[0]["items"])
+        self.assertLessEqual(len(cl), nb.CHANGELOG_KEEP)
+        self.assertFalse(any("**" in i for c in cl for i in c["items"]))
+
+    def test_changelog_missing_file(self):
+        self.assertEqual(nb.read_changelog("/nonexistent.md"), [])
+
     def test_status_json(self):
         b = Bot(self, NOON, settings={"sources": {"ynet": False}}, ai=ai_events(("sec", 2, "IL"))).run()
         s = b.data("status.json")
@@ -458,6 +469,21 @@ class TestSite(unittest.TestCase):
         p = self.page()
         self.assertIn(f"'sha256-{csp_hash.script_hash(p)}'", p,
                       "ה-hash ב-CSP לא תואם לסקריפט – להריץ python3 tests/csp_hash.py")
+
+    def test_site_version_matches_bot(self):
+        m = re.search(r'var SITE_VERSION = "([^"]+)"', self.page())
+        self.assertEqual(m.group(1), nb.VERSION, "לעדכן SITE_VERSION ב-docs/index.html")
+
+    def test_token_never_stored(self):
+        """החלטת תומר (v3.1): הטוקן לא נשמר בטלפון. מותר רק למחוק טוקן ישן."""
+        p = self.page()
+        self.assertIsNone(re.search(r'store\("gh_token",(?!\s*null\))', p), "הטוקן נשמר בטלפון")
+        self.assertIsNone(re.search(r'(localStorage|sessionStorage)\.setItem\([^)]*tok', p), "הטוקן נשמר בטלפון")
+        self.assertIn('store("gh_token", null)', p)
+
+    def test_hidden_attribute_wins_over_css(self):
+        """באג שנתפס ב-QA של 3.1: display:flex דרס את hidden – פס "גרסה חדשה" הופיע תמיד."""
+        self.assertIn("[hidden]{display:none !important}", self.page())
 
     def test_noindex_and_no_secrets(self):
         p = self.page()

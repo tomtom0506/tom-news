@@ -1,0 +1,14 @@
+{
+  "telegram_enabled": true,
+  "ai_enabled": true,
+  "topics": {
+    "ביטחון": true,
+    "פוליטיקה": true,
+    "כלכלה": true,
+    "עולם": true,
+    "טכנולוגיה": true
+  },
+  "source_countries": [],
+  "event_countries": [],
+  "sources": {}
+}

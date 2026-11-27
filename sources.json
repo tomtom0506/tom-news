@@ -1,68 +1,28 @@
 {
   "media": [
-    {
-      "name": "ynet",
-      "url": "https://www.ynet.co.il/Integration/StoryRss1854.xml"
-    },
-    {
-      "name": "Jerusalem Post",
-      "url": "https://www.jpost.com/rss/rssfeedsfrontpage.aspx"
-    },
-    {
-      "name": "BBC",
-      "url": "https://feeds.bbci.co.uk/news/world/middle_east/rss.xml"
-    },
-    {
-      "name": "Al Jazeera",
-      "url": "https://www.aljazeera.com/xml/rss/all.xml"
-    },
-    {
-      "name": "BBC פרסית",
-      "url": "https://feeds.bbci.co.uk/persian/rss.xml"
-    },
-    {
-      "name": "BBC ערבית",
-      "url": "https://feeds.bbci.co.uk/arabic/rss.xml"
-    },
-    {
-      "name": "BBC כלכלה",
-      "url": "https://feeds.bbci.co.uk/news/business/rss.xml"
-    },
-    {
-      "name": "CNBC",
-      "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html"
-    }
+    {"name": "ynet", "url": "https://www.ynet.co.il/Integration/StoryRss1854.xml", "country": "ישראל", "topics": ["ביטחון", "פוליטיקה", "כלכלה", "עולם"]},
+    {"name": "Jerusalem Post", "url": "https://www.jpost.com/rss/rssfeedsfrontpage.aspx", "country": "ישראל", "topics": ["ביטחון", "פוליטיקה", "עולם"]},
+    {"name": "BBC", "url": "https://feeds.bbci.co.uk/news/world/middle_east/rss.xml", "country": "בריטניה", "topics": ["ביטחון", "פוליטיקה", "עולם"]},
+    {"name": "Al Jazeera", "url": "https://www.aljazeera.com/xml/rss/all.xml", "country": "קטאר", "topics": ["ביטחון", "פוליטיקה", "עולם"]},
+    {"name": "BBC פרסית", "url": "https://feeds.bbci.co.uk/persian/rss.xml", "country": "בריטניה", "topics": ["ביטחון", "פוליטיקה", "עולם"]},
+    {"name": "BBC ערבית", "url": "https://feeds.bbci.co.uk/arabic/rss.xml", "country": "בריטניה", "topics": ["ביטחון", "פוליטיקה", "עולם"]},
+    {"name": "BBC כלכלה", "url": "https://feeds.bbci.co.uk/news/business/rss.xml", "country": "בריטניה", "topics": ["כלכלה", "טכנולוגיה"]},
+    {"name": "CNBC", "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html", "country": "ארה\"ב", "topics": ["כלכלה", "טכנולוגיה"]}
   ],
   "telegram": [
-    "abualiexpress",
-    "amitsegal",
-    "New_security8200",
-    "secrets_news1",
-    "News_il_h",
-    "baznews9",
-    "newssil",
-    "OvadiaTubul",
-    "israelnews2026",
-    "new_il_hasifot",
-    "pkpoi",
-    "OSINTdefender",
-    "marketfeed",
-    "FinancialJuice"
-  ],
-  "telegram_names": {
-    "abualiexpress": "אבו עלי",
-    "amitsegal": "עמית סגל",
-    "New_security8200": "8200",
-    "secrets_news1": "סודות החדשות",
-    "News_il_h": "חדשות ישראל ללא צנזורה",
-    "baznews9": "baznews9",
-    "newssil": "newssil",
-    "OvadiaTubul": "עובדיה טובול",
-    "israelnews2026": "israelnews2026",
-    "new_il_hasifot": "חדשות וחשיפות",
-    "pkpoi": "pkpoi",
-    "OSINTdefender": "OSINTdefender",
-    "marketfeed": "Market News Feed",
-    "FinancialJuice": "FinancialJuice"
-  }
+    {"name": "abualiexpress", "title": "אבו עלי", "country": "ישראל", "topics": ["ביטחון", "עולם"]},
+    {"name": "amitsegal", "title": "עמית סגל", "country": "ישראל", "topics": ["פוליטיקה", "ביטחון"]},
+    {"name": "New_security8200", "title": "8200", "country": "ישראל", "topics": ["ביטחון"]},
+    {"name": "secrets_news1", "title": "סודות החדשות", "country": "ישראל", "topics": ["ביטחון", "פוליטיקה"]},
+    {"name": "News_il_h", "title": "חדשות ישראל ללא צנזורה", "country": "ישראל", "topics": ["ביטחון", "פוליטיקה"]},
+    {"name": "baznews9", "title": "baznews9", "country": "ישראל", "topics": ["ביטחון", "פוליטיקה"]},
+    {"name": "newssil", "title": "newssil", "country": "ישראל", "topics": ["ביטחון", "פוליטיקה"]},
+    {"name": "OvadiaTubul", "title": "עובדיה טובול", "country": "ישראל", "topics": ["ביטחון", "פוליטיקה"]},
+    {"name": "israelnews2026", "title": "israelnews2026", "country": "ישראל", "topics": ["ביטחון", "פוליטיקה"]},
+    {"name": "new_il_hasifot", "title": "חדשות וחשיפות", "country": "ישראל", "topics": ["ביטחון", "פוליטיקה"]},
+    {"name": "pkpoi", "title": "pkpoi", "country": "ישראל", "topics": ["ביטחון", "פוליטיקה"]},
+    {"name": "OSINTdefender", "title": "OSINTdefender", "country": "ארה\"ב", "topics": ["ביטחון", "עולם"]},
+    {"name": "marketfeed", "title": "Market News Feed", "country": "בינלאומי", "topics": ["כלכלה"]},
+    {"name": "FinancialJuice", "title": "FinancialJuice", "country": "בריטניה", "topics": ["כלכלה"]}
+  ]
 }

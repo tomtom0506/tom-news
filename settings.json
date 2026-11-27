@@ -10,5 +10,28 @@
   },
   "source_countries": [],
   "event_countries": [],
-  "sources": {}
+  "sources": {
+    "ynet": true,
+    "Jerusalem Post": true,
+    "BBC": true,
+    "Al Jazeera": true,
+    "BBC פרסית": true,
+    "BBC ערבית": true,
+    "BBC כלכלה": true,
+    "CNBC": true,
+    "abualiexpress": true,
+    "amitsegal": true,
+    "New_security8200": true,
+    "secrets_news1": true,
+    "News_il_h": true,
+    "baznews9": true,
+    "newssil": true,
+    "OvadiaTubul": true,
+    "israelnews2026": true,
+    "new_il_hasifot": true,
+    "pkpoi": true,
+    "OSINTdefender": true,
+    "marketfeed": true,
+    "FinancialJuice": true
+  }
 }

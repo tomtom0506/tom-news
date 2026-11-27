@@ -502,5 +502,37 @@ class TestSite(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
 
 
+class TestIcons(unittest.TestCase):
+    DOCS = os.path.join(ROOT, "docs")
+
+    @staticmethod
+    def png_size(path):
+        with open(path, "rb") as f:
+            head = f.read(24)
+        assert head[:8] == b"\x89PNG\r\n\x1a\n", path
+        return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+
+    def test_png_icons_exist_with_right_size(self):
+        for name, size in [("apple-touch-icon.png", 180), ("icon-192.png", 192), ("icon-512.png", 512),
+                           ("favicon-32.png", 32)]:
+            self.assertEqual(self.png_size(os.path.join(self.DOCS, "icons", name)), (size, size), name)
+
+    def test_manifest_valid_and_files_exist(self):
+        with open(os.path.join(self.DOCS, "manifest.webmanifest"), encoding="utf-8") as f:
+            m = json.load(f)
+        self.assertEqual(m["display"], "standalone")
+        self.assertTrue(m["short_name"])
+        for icon in m["icons"]:
+            self.assertTrue(os.path.exists(os.path.join(self.DOCS, icon["src"])), icon["src"])
+
+    def test_page_links_icons_and_csp_allows_manifest(self):
+        with open(os.path.join(self.DOCS, "index.html"), encoding="utf-8") as f:
+            page = f.read()
+        for href in re.findall(r'<link rel="(?:icon|apple-touch-icon|manifest)" href="([^"]+)"', page):
+            self.assertTrue(os.path.exists(os.path.join(self.DOCS, href)), href)
+        self.assertIn('rel="apple-touch-icon"', page)
+        self.assertIn("manifest-src 'self'", page)
+
+
 if __name__ == "__main__":
     unittest.main()

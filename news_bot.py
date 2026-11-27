@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tom-news v3.0.0 — בוט חדשות אישי: אתר לקריאה, טלגרם רק לדחוף.
+"""tom-news v3.2.0 — בוט חדשות אישי: אתר לקריאה, טלגרם רק לדחוף.
 
 כל ריצה: קורא את settings.json, אוסף ידיעות מכלי תקשורת (RSS) ומערוצי טלגרם ציבוריים
 (רק מקורות פעילים לפי ההגדרות), מסנן זבל וכפילויות מקומית (בחינם), ושולח את מה שנשאר
@@ -22,7 +22,7 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from zoneinfo import ZoneInfo
 
-VERSION = "3.1.0"
+VERSION = "3.2.0"
 IL = ZoneInfo("Asia/Jerusalem")
 BASE = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(BASE, "state.json")

@@ -485,6 +485,15 @@ class TestSite(unittest.TestCase):
         """באג שנתפס ב-QA של 3.1: display:flex דרס את hidden – פס "גרסה חדשה" הופיע תמיד."""
         self.assertIn("[hidden]{display:none !important}", self.page())
 
+    def test_token_field_uses_keychain_autofill(self):
+        """v3.2.1: טופס עם username + current-password כדי שמחזיק המפתחות יציע לשמור/למלא."""
+        p = self.page()
+        self.assertIn('<form id="saveform" autocomplete="on">', p)
+        self.assertRegex(p, r'<input id="user" name="username" type="text" autocomplete="username"')
+        self.assertRegex(p, r'<input id="tok" name="password" type="password" autocomplete="current-password"')
+        self.assertIn('id="save" type="submit"', p)
+        self.assertIn("ev.preventDefault()", p)
+
     def test_noindex_and_no_secrets(self):
         p = self.page()
         self.assertIn('<meta name="robots" content="noindex, nofollow">', p)
